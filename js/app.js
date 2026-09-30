@@ -1,4 +1,5 @@
 import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
+import { initOps } from './ops.js';
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
@@ -137,9 +138,13 @@ sb.auth.onAuthStateChange((ev, session) => {
 
 /* ---------- shell & routing ---------- */
 const ALL = ['owner', 'partner', 'salesman', 'accountant', 'warehouse'];
+const ops = initOps({ sb, $, esc, money, num, toast, errMsg, has, modal });
 const NAV = [
   { id: 'dash', t: 'ড্যাশবোর্ড', roles: ALL, fn: viewDash },
-  { id: 'products', t: 'পণ্য', roles: ALL, fn: viewProducts },
+  { id: 'sales', t: 'রিটেইলার বিক্রয়', roles: ['owner', 'partner', 'salesman'], fn: ops.viewSales },
+  { id: 'payments', t: 'পেমেন্ট/পাওনা', roles: ['owner', 'partner', 'accountant', 'salesman'], fn: ops.viewPayments },
+  { id: 'purchases', t: 'ক্রয়', roles: ['owner', 'partner', 'accountant', 'warehouse'], fn: ops.viewPurchases },
+  { id: 'products', t: 'পণ্য/স্টক', roles: ALL, fn: viewProducts },
   { id: 'retailers', t: 'রিটেইলার', roles: ALL, fn: viewRetailers },
   { id: 'suppliers', t: 'সরবরাহকারী', roles: ['owner', 'partner', 'accountant', 'warehouse'], fn: viewSuppliers },
   { id: 'users', t: 'ইউজার', roles: ['owner'], fn: viewUsers }
@@ -232,13 +237,16 @@ const card = (bn, en, val, cls = '') => `<div class="card ${cls}"><div class="l"
 async function viewDash(el) {
   if (has('salesman')) return dashSales(el);
   if (has('warehouse')) return dashStore(el);
-  const [f, a, p, s] = await Promise.all([
-    sb.from('v_dashboard').select('*').maybeSingle(),
-    sb.from('v_account_balances').select('*').order('name'),
-    sb.from('v_partner_summary').select('*').order('name'),
-    sb.from('v_stock').select('name,unit,qty_on_hand,min_stock').eq('is_low', true).order('name').limit(10)
-  ]);
-  const err = f.error || a.error || p.error || s.error; if (err) throw err;
+  const qs = [
+    ['v_dashboard', sb.from('v_dashboard').select('*').maybeSingle()],
+    ['v_account_balances', sb.from('v_account_balances').select('*').order('name')],
+    ['v_partner_summary', sb.from('v_partner_summary').select('*').order('name')],
+    ['v_stock', sb.from('v_stock').select('name,unit,qty_on_hand,min_stock').eq('is_low', true).order('name').limit(10)]
+  ];
+  const res = await Promise.all(qs.map(x => x[1]));
+  const bad = res.map((r, i) => r.error ? `${qs[i][0]}: ${r.error.message}` : null).filter(Boolean);
+  if (bad.length) { el.innerHTML = `<p class="err">ড্যাশবোর্ড লোড হয়নি। কারিগরি তথ্য (ডেভেলপারকে দিন):<br><small>${esc(bad.join(' | '))}</small></p>`; return; }
+  const [f, a, p, s] = res;
   const d = f.data || {};
   const neg = v => Number(v) < 0 ? 'neg' : '';
   el.innerHTML = `<div class="bar"><h2>ড্যাশবোর্ড</h2></div>
