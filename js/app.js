@@ -171,7 +171,7 @@ function readForm(fd, fields) {
   const o = {};
   for (const f of fields) {
     if (f.type === 'check') o[f.key] = fd.get(f.key) === 'on';
-    else if (f.type === 'number') o[f.key] = Number(fd.get(f.key) || 0);
+    else if (f.type === 'number') { const n = Number(fd.get(f.key) || 0); o[f.key] = (f.nullZero && !n) ? null : n; }
     else { const v = (fd.get(f.key) || '').trim(); o[f.key] = v === '' ? null : v; }
   }
   return o;
@@ -188,8 +188,8 @@ async function listView(el, cfg) {
     const r = rows.filter(x => cfg.searchKeys.some(k => String(x[k] ?? '').toLowerCase().includes(t)));
     const hasAct = cfg.canEdit || acts.length;
     $('#list', el).innerHTML = r.length
-      ? `<table><thead><tr>${cfg.cols.map(c => `<th>${c.h}</th>`).join('')}${hasAct ? '<th></th>' : ''}</tr></thead><tbody>${r.map(x =>
-        `<tr>${cfg.cols.map(c => `<td>${c.f(x)}</td>`).join('')}${hasAct ? `<td>${cfg.canEdit ? `<button class="btn sm ghost" data-id="${x.id}">Edit</button> ` : ''}${acts.map((a, i) => `<button class="btn sm ghost" data-act="${i}" data-rid="${x.id}">${a.label}</button>`).join(' ')}</td>` : ''}</tr>`).join('')}</tbody></table>`
+      ? `<table><thead><tr>${hasAct ? '<th>Actions</th>' : ''}${cfg.cols.map(c => `<th>${c.h}</th>`).join('')}</tr></thead><tbody>${r.map(x =>
+        `<tr>${hasAct ? `<td>${cfg.canEdit ? `<button class="btn sm" data-id="${x.id}">Edit</button> ` : ''}${acts.map((a, i) => `<button class="btn sm ghost" data-act="${i}" data-rid="${x.id}">${a.label}</button>`).join(' ')}</td>` : ''}${cfg.cols.map(c => `<td>${c.f(x)}</td>`).join('')}</tr>`).join('')}</tbody></table>`
       : `<p class="empty">${cfg.empty}</p>`;
     el.querySelectorAll('[data-id]').forEach(b => b.onclick = () => edit(rows.find(x => x.id === b.dataset.id)));
     el.querySelectorAll('[data-act]').forEach(b => b.onclick = () => acts[b.dataset.act].fn(rows.find(x => x.id === b.dataset.rid)));
@@ -206,7 +206,11 @@ async function listView(el, cfg) {
   await load();
 }
 
-const H = { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, field, readForm, listView, opts, chk, state, LOADING };
+const confirmReason = (title, intro, fn, after) => modal(title, `<p>${intro}</p><label>Reason<input name="reason" required></label>`, async fd => {
+  const { error } = await fn(fd.get('reason')); if (error) throw error;
+  toast('Completed successfully.'); await after();
+}, 'Confirm');
+const H = { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, field, readForm, listView, opts, chk, state, LOADING, confirmReason };
 const ops = initOps(H);
 const fin = initFin(H, ops);
 const rep = initReports(H);
@@ -327,6 +331,7 @@ async function viewProducts(el) {
     { key: 'name', label: 'Product name', req: true }, { key: 'sku', label: 'SKU / code' },
     { key: 'category_id', label: 'Category', type: 'select', options: [['', '— Select —'], ...cats.map(c => [c.id, c.name])] },
     { key: 'unit', label: 'Unit', type: 'select', def: 'piece', options: ['piece', 'packet', 'kg', 'gram', 'litre', 'ml', 'bag', 'carton', 'bundle', 'set', 'other'].map(u => [u, u]) },
+    { key: 'units_per_carton', label: 'Pieces per carton (used to share shipping costs automatically)', type: 'number', nullZero: true },
     { key: 'sell_price', label: 'Standard retailer price', type: 'number' }, { key: 'facebook_price', label: 'Facebook price', type: 'number' },
     { key: 'min_stock', label: 'Minimum stock (low-stock alert)', type: 'number' }, { key: 'is_active', label: 'Active', type: 'check' }
   ];
@@ -336,11 +341,12 @@ async function viewProducts(el) {
     { h: 'Stock', f: x => `<span class="badge ${seeCost && Number(x.qty_on_hand) <= Number(x.min_stock) ? 'low' : ''}">${num(x.qty_on_hand)} ${esc(x.unit)}</span>` },
     { h: 'Retailer price', f: x => money(x.sell_price) }, { h: 'Facebook price', f: x => money(x.facebook_price) }
   ];
+  if (seeCost) cols.splice(3, 0, { h: 'Pieces / carton', f: x => x.units_per_carton ? num(x.units_per_carton) : '—' });
   if (seeCost) cols.push({ h: 'Avg. cost (WAC)', f: x => money(x.avg_cost) }, { h: 'Stock value', f: x => money(Number(x.qty_on_hand) * Number(x.avg_cost)) });
   await listView(el, {
     title: 'Products & Stock', table: 'products', canEdit, fields, cols, searchKeys: ['name', 'sku'],
     newTitle: 'New product', editTitle: 'Edit product', empty: 'No products yet. Use “+ New” to add your first product.',
-    note: canEdit ? 'Stock quantity and average cost are controlled by purchases, sales and inventory adjustments and cannot be edited here.' : '',
+    note: canEdit ? 'Tap <b>Edit</b> to correct a product’s name, code, category, unit, prices or minimum stock. Stock quantity and average cost are controlled by purchases, sales and Inventory Control and cannot be typed in here. To remove a product from use, untick “Active”.' : '',
     load: async () => {
       const q = seeCost ? sb.from('products').select('*').order('name').limit(2000) : sb.from('v_products_sales').select('*').order('name').limit(2000);
       const { data, error } = await q; if (error) throw error; return data;

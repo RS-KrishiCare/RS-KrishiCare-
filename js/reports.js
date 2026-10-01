@@ -22,6 +22,7 @@ export function initReports(h) {
     { id: 'partner_equity', label: 'Partner equity report', f: ['partner'], nodate: true },
     { id: 'product_profit', label: 'Product profitability', f: ['product'] },
     { id: 'channel_profit', label: 'Channel profitability', f: [] },
+    { id: 'salesman', label: 'Salesman performance', f: [] },
     { id: 'daily', label: 'Daily sales, expense and profit', f: [] }
   ];
   const QTY = new Set(['quantity', 'quantity_sold', 'min_stock']);
@@ -120,7 +121,7 @@ export function initReports(h) {
       const p = {}; new FormData(f).forEach((v, k) => { if (v) p[k] = v; });
       btn.disabled = true; out.innerHTML = LOADING;
       try {
-        const { data, error } = await sb.rpc('report_data', { p_report: rep.id, p });
+        const { data, error } = rep.id === 'salesman' ? await sb.rpc('report_salesman', { p }) : await sb.rpc('report_data', { p_report: rep.id, p });
         if (error) throw error;
         const t = renderTable(rep, data || []);
         const sub = [p.from ? 'From ' + p.from : '', p.to ? 'To ' + p.to : ''].filter(Boolean).join(' ') || 'All dates';

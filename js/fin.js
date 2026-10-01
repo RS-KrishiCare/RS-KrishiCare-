@@ -1,7 +1,7 @@
 // Facebook orders, Expenses, Finance & Accounts, Partners & Capital, Inventory Control, Audit Log, Settings.
 // Every write goes through database RPCs (atomic, role-checked, audited).
 export function initFin(h, ops) {
-  const { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, opts, chk, listView, LOADING } = h;
+  const { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, opts, chk, listView, LOADING, confirmReason } = h;
   const numIn = (cls, label, val = 0) => `<label>${label}<input class="${cls}" type="number" step="any" min="0" inputmode="decimal" value="${val}"></label>`;
   const fld = (name, label, val = 0, extra = '') => `<label>${label}<input name="${name}" type="number" step="any" min="0" inputmode="decimal" value="${val}" ${extra}></label>`;
   const table = (heads, rows, empty) => rows.length
@@ -133,7 +133,12 @@ export function initFin(h, ops) {
       <button class="btn go" style="width:100%">Save expense</button></form></div>` : ''}
     <h3 class="sec">By category (latest 200 entries)</h3><div class="grid">${Object.keys(by).length ? Object.entries(by).map(([k, v]) => `<div class="card"><div class="l">${esc(k)}</div><div class="v">${money(v)}</div></div>`).join('') : '<div class="card"><div class="l">Total expenses</div><div class="v">৳ 0.00</div></div>'}</div>
     <h3 class="sec">Expense ledger</h3>
-    ${table(['Date', 'Category', 'Description', 'Paid from', 'Reference', 'Amount'], exp.map(e => `<tr><td>${esc(e.expense_date)}</td><td>${esc(e.expense_categories?.name || '')}</td><td>${esc(e.description || '')}</td><td>${esc(e.financial_accounts?.name || '')}</td><td>${esc(e.reference || '')}</td><td><b>${money(e.amount)}</b></td></tr>`), 'No expenses recorded yet.')}`;
+    ${table(['Date', 'Category', 'Description', 'Paid from', 'Reference', 'Amount', ''], exp.map(e => `<tr><td>${esc(e.expense_date)}</td><td>${esc(e.expense_categories?.name || '')}</td><td>${esc(e.description || '')}</td><td>${esc(e.financial_accounts?.name || '')}</td><td>${esc(e.reference || '')}</td><td><b>${money(e.amount)}</b></td><td>${canAdd ? `<button class="btn sm ghost" data-del="${e.id}">Delete</button>` : ''}</td></tr>`), 'No expenses recorded yet.')}`;
+    el.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
+      const x = exp.find(r => r.id === b.dataset.del);
+      confirmReason('Delete expense', `Delete “${esc(x.description || '')}” (${money(x.amount)})? The amount is returned to the account. Use this to correct a wrongly entered expense; the original entry stays in the Audit Log.`,
+        r => sb.rpc('void_expense', { p_expense: x.id, p_reason: r }), () => viewExpenses(el));
+    });
     const f = $('#ef', el); if (!f) return;
     f.onsubmit = async e => {
       e.preventDefault(); const b = f.querySelector('.go'); b.disabled = true;
@@ -205,7 +210,12 @@ export function initFin(h, ops) {
       <div class="row2"><label>Reference<input name="reference"></label><label>Reason / notes<input name="reason"></label></div>
       <button class="btn go" style="width:100%">Save transaction</button></form></div>` : ''}
     <h3 class="sec">Transaction history</h3>
-    ${table(['Date', 'Partner', 'Type', 'Amount', 'Account', 'Reference', 'Reason'], tx.map(t => `<tr><td>${esc(t.txn_date)}</td><td>${esc(t.partners?.name || '')}</td><td>${esc(PT[t.kind] || t.kind)}</td><td><b>${money(t.amount)}</b></td><td>${esc(t.financial_accounts?.name || '')}</td><td>${esc(t.reference || '')}</td><td>${esc(t.reason || '')}</td></tr>`), 'No partner transactions yet.')}`;
+    ${table(['Date', 'Partner', 'Type', 'Amount', 'Account', 'Reference', 'Reason', ''], tx.map(t => `<tr><td>${esc(t.txn_date)}</td><td>${esc(t.partners?.name || '')}</td><td>${esc(PT[t.kind] || t.kind)}</td><td><b>${money(t.amount)}</b></td><td>${esc(t.financial_accounts?.name || '')}</td><td>${esc(t.reference || '')}</td><td>${esc(t.reason || '')}</td><td>${has('owner') ? `<button class="btn sm ghost" data-rv="${t.id}">Reverse</button>` : ''}</td></tr>`), 'No partner transactions yet.')}`;
+    el.querySelectorAll('[data-rv]').forEach(b => b.onclick = () => {
+      const t = tx.find(r => r.id === b.dataset.rv);
+      confirmReason('Reverse partner entry', `Reverse this ${esc(PT[t.kind] || t.kind)} of ${money(t.amount)}? The account balance is corrected. Use this only to fix a wrongly recorded entry.`,
+        r => sb.rpc('void_partner_txn', { p_txn: t.id, p_reason: r }), () => viewCapital(el));
+    });
     const f = $('#cf', el); if (!f) return;
     f.onsubmit = async e => {
       e.preventDefault(); const b = f.querySelector('.go'); b.disabled = true;
@@ -308,13 +318,18 @@ export function initFin(h, ops) {
         cols: [{ h: 'Name', f: x => `<b>${esc(x.name)}</b>` }, { h: 'Type', f: x => esc(label(x.kind)) }, { h: 'Status', f: x => x.is_active ? 'Active' : 'Inactive' }],
         load: async () => { const { data, error } = await sb.from('financial_accounts').select('*').order('name'); if (error) throw error; return data; }
       }),
-      partners: () => listView($('#sec', el), {
+      partners: async () => {
+        const { data: pp } = await sb.from('partners').select('profit_pct,ownership_pct').eq('is_active', true);
+        const sp = (pp || []).reduce((s, x) => s + N(x.profit_pct), 0), so = (pp || []).reduce((s, x) => s + N(x.ownership_pct), 0);
+        const warn = (Math.abs(sp - 100) > 0.001 || Math.abs(so - 100) > 0.001) ? `<b style="color:#c62828">⚠ Active partners’ profit shares total ${num(sp)}% and ownership totals ${num(so)}%. Both should be exactly 100%.</b>` : `Profit shares total ${num(sp)}% and ownership totals ${num(so)}% — correct.`;
+        return listView($('#sec', el), {
         title: 'Partners', table: 'partners', canEdit: true, newTitle: 'New partner', editTitle: 'Edit partner', empty: 'No partners.', searchKeys: ['name'],
-        note: 'Profit shares of active partners should add up to 100%.',
+        note: warn,
         fields: [{ key: 'name', label: 'Partner name', req: true }, { key: 'ownership_pct', label: 'Ownership %', type: 'number' }, { key: 'profit_pct', label: 'Profit share %', type: 'number' }, { key: 'is_active', label: 'Active', type: 'check' }],
         cols: [{ h: 'Name', f: x => `<b>${esc(x.name)}</b>` }, { h: 'Ownership', f: x => num(x.ownership_pct) + '%' }, { h: 'Profit share', f: x => num(x.profit_pct) + '%' }, { h: 'Status', f: x => x.is_active ? 'Active' : 'Inactive' }],
         load: async () => { const { data, error } = await sb.from('partners').select('*').order('name'); if (error) throw error; return data; }
-      }),
+        });
+      },
       business: async () => {
         const { data } = await sb.from('settings').select('value').eq('key', 'business').maybeSingle();
         const b = data?.value || {};

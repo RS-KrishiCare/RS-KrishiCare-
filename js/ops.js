@@ -1,7 +1,7 @@
 // Operations: Purchases, Retailer Sales, Invoices, Payments & Receivables.
 // All accounting truth (stock, WAC, COGS, dues, balances) is computed by the database RPCs.
 export function initOps(h) {
-  const { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, opts, chk } = h;
+  const { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, opts, chk, confirmReason } = h;
   const numIn = (cls, label, val = 0) => `<label>${label}<input class="${cls}" type="number" step="any" min="0" inputmode="decimal" value="${val}"></label>`;
   const fld = (name, label, val = 0, extra = '') => `<label>${label}<input name="${name}" type="number" step="any" min="0" inputmode="decimal" value="${val}" ${extra}></label>`;
 
@@ -10,7 +10,7 @@ export function initOps(h) {
     const canCreate = has('owner', 'partner', 'warehouse'), canPay = has('owner', 'accountant'), seeDue = has('owner', 'partner', 'accountant');
     const rs = await Promise.all([
       sb.from('suppliers').select('id,name,is_active').order('name'),
-      sb.from('products').select('id,name,unit').eq('is_active', true).order('name'),
+      sb.from('products').select('id,name,unit,units_per_carton').eq('is_active', true).order('name'),
       sb.from('v_payment_methods').select('id,name').order('name'),
       sb.from('purchases').select('id,purchase_no,purchase_date,product_total,landed_total,suppliers(name)').order('purchase_date', { ascending: false }).limit(50),
       seeDue ? sb.from('v_supplier_due').select('*').gt('due', 0).order('purchase_date') : Promise.resolve({ data: [] })
@@ -49,11 +49,11 @@ export function initOps(h) {
       : '<p class="empty">No outstanding supplier payables.</p>'}` : '';
 
     el.innerHTML = `<div class="bar"><h2>Purchases</h2></div>
-    <div class="hint">Landing cost = product price + transport + loading + van/godown inbound cost. Inbound costs are shared equally per carton. Delivery to retailers is a sales expense and is not part of landing cost.</div>
+    <div class="hint">Landing cost = product price + transport + loading + van/godown inbound cost. Enter the day’s inbound costs once (in any field below) — the system shares the total equally per carton across all products in this purchase. Cartons are calculated from each product’s “pieces per carton”. Stock is kept and sold in pieces. Delivery to retailers is a sales expense and is not part of landing cost.</div>
     ${form}${dueHtml}
     <h3 class="sec">Recent purchases</h3>${pur.length
-        ? `<div class="tablewrap"><table><thead><tr><th>No.</th><th>Date</th><th>Supplier</th><th>Product total</th><th>Landed total</th></tr></thead><tbody>${pur.map(p =>
-          `<tr><td>${esc(p.purchase_no)}</td><td>${esc(p.purchase_date)}</td><td>${esc(p.suppliers?.name || '')}</td><td>${money(p.product_total)}</td><td>${money(p.landed_total)}</td></tr>`).join('')}</tbody></table></div>`
+        ? `<div class="tablewrap"><table><thead><tr><th>No.</th><th>Date</th><th>Supplier</th><th>Product total</th><th>Landed total</th><th></th></tr></thead><tbody>${pur.map(p =>
+          `<tr><td>${esc(p.purchase_no)}</td><td>${esc(p.purchase_date)}</td><td>${esc(p.suppliers?.name || '')}</td><td>${money(p.product_total)}</td><td>${money(p.landed_total)}</td><td><button class="btn sm ghost" data-det="${p.id}">Details</button>${has('owner') ? ` <button class="btn sm ghost" data-void="${p.id}">Cancel</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`
         : '<p class="empty">No purchases recorded yet.</p>'}`;
 
     el.querySelectorAll('[data-pay]').forEach(b => b.onclick = () => {
@@ -66,24 +66,56 @@ export function initOps(h) {
         });
     });
 
+    el.querySelectorAll('[data-det]').forEach(b => b.onclick = async () => {
+      try {
+        const pu = pur.find(x => x.id === b.dataset.det);
+        const { data, error } = await sb.from('purchase_items').select('qty,cartons,unit_price,allocated_inbound,landed_unit_cost,products(name,unit)').eq('purchase_id', pu.id);
+        if (error) throw error;
+        modal('Purchase ' + pu.purchase_no,
+          `<div class="tablewrap"><table><thead><tr><th>Product</th><th>Qty</th><th>Cartons</th><th>Unit price</th><th>Inbound share</th><th>Landed / piece</th><th>Landed / carton</th></tr></thead><tbody>${data.map(i =>
+            `<tr><td>${esc(i.products?.name || '')}</td><td>${num(i.qty)} ${esc(i.products?.unit || '')}</td><td>${num(i.cartons)}</td><td>${money(i.unit_price)}</td><td>${money(i.allocated_inbound)}</td><td><b>${money(i.landed_unit_cost)}</b></td><td>${N(i.cartons) > 0 ? money(N(i.qty) * N(i.landed_unit_cost) / N(i.cartons)) : '—'}</td></tr>`).join('')}</tbody></table></div>`,
+          async () => { }, 'Close');
+      } catch (err) { toast(errMsg(err), 'err'); }
+    });
+    el.querySelectorAll('[data-void]').forEach(b => b.onclick = () => {
+      const pu = pur.find(x => x.id === b.dataset.void);
+      confirmReason('Cancel purchase ' + pu.purchase_no, 'Stock added by this purchase will be removed and the payments will be reversed. This only works while all purchased units are still in stock.',
+        r => sb.rpc('void_purchase', { p_purchase: pu.id, p_reason: r }), () => viewPurchases(el));
+    });
+
     const pf = $('#pf', el); if (!pf) return;
     const box = $('#lines', el);
-    const lineHtml = () => `<div class="ln"><label>Product<select class="pid">${prod.map(p => `<option value="${p.id}">${esc(p.name)} (${esc(p.unit)})</option>`).join('')}</select></label>
-      <div class="row2">${numIn('q', 'Quantity', 1)}${numIn('p', 'Unit purchase price', 0)}</div>
-      <div class="row2">${numIn('c', 'Number of cartons', 0)}<button type="button" class="btn ghost sm rm" style="align-self:end;margin-bottom:10px">✕ Remove</button></div></div>`;
+    const upcOf = pid => N(prod.find(x => x.id === pid)?.units_per_carton);
+    const lineHtml = () => `<div class="ln"><label>Product<select class="pid">${prod.map(p => `<option value="${p.id}">${esc(p.name)} (${esc(p.unit)})${p.units_per_carton ? ' · ' + num(p.units_per_carton) + ' per carton' : ''}</option>`).join('')}</select></label>
+      <div class="row2">${numIn('q', 'Quantity (pieces)', 1)}${numIn('p', 'Unit purchase price', 0)}</div>
+      <div class="row2"><label>Cartons <small>(automatic)</small><input class="c" data-auto="1" type="number" step="any" min="0" inputmode="decimal" value="0"></label><button type="button" class="btn ghost sm rm" style="align-self:end;margin-bottom:10px">✕ Remove</button></div></div>`;
+    const autoCartons = () => box.querySelectorAll('.ln').forEach(r => {
+      const c = r.querySelector('.c'); if (c.dataset.auto === '0') return;
+      const u = upcOf(r.querySelector('.pid').value), q = N(r.querySelector('.q').value);
+      c.value = u > 0 ? Math.round(q / u * 1000) / 1000 : 0;
+    });
     const calc = () => {
-      const ls = [...box.querySelectorAll('.ln')].map(r => ({ name: r.querySelector('.pid').selectedOptions[0].text, q: N(r.querySelector('.q').value), p: N(r.querySelector('.p').value), c: N(r.querySelector('.c').value) }));
+      autoCartons();
+      const ls = [...box.querySelectorAll('.ln')].map(r => ({ name: r.querySelector('.pid').selectedOptions[0].text.split(' (')[0], q: N(r.querySelector('.q').value), p: N(r.querySelector('.p').value), c: N(r.querySelector('.c').value) }));
       const inb = ['transport_cost', 'loading_cost', 'van_cost', 'other_cost'].reduce((s, k) => s + N(pf.elements[k].value), 0);
       const tot = ls.reduce((s, l) => s + l.q * l.p, 0), cart = ls.reduce((s, l) => s + l.c, 0), ws = cart > 0 ? cart : ls.reduce((s, l) => s + l.q, 0);
       const paid = N(pf.elements.paid_amount.value);
+      const miss = cart > 0 ? ls.filter(l => l.c <= 0).map(l => l.name) : [];
       $('#prev', el).innerHTML = `<div class="sum"><b>Estimate</b> <small>(the database calculates the final figures)</small>
-      ${ls.map(l => { const w = cart > 0 ? l.c : l.q; const lu = l.q > 0 && ws > 0 ? (l.q * l.p + inb * w / ws) / l.q : 0; return `<div><span>${esc(l.name)}</span><span>Landed unit cost ${money(lu)}</span></div>`; }).join('')}
-      <div><span>Product total</span><span>${money(tot)}</span></div><div><span>Inbound costs</span><span>${money(inb)}</span></div>
+      ${miss.length ? `<div class="err"><span>⚠ Cartons unknown for: ${esc(miss.join(', '))}. Set “pieces per carton” on the product or type the cartons.</span></div>` : ''}
+      ${ls.map(l => { const w = cart > 0 ? l.c : l.q; const lt = ws > 0 ? l.q * l.p + inb * w / ws : 0; const lu = l.q > 0 ? lt / l.q : 0; return `<div><span>${esc(l.name)}</span><span>${money(lu)} / piece${l.c > 0 ? ' · ' + money(lt / l.c) + ' / carton' : ''}</span></div>`; }).join('')}
+      <div><span>Total cartons</span><span>${num(cart)}</span></div>
+      <div><span>Inbound cost per carton</span><span>${cart > 0 ? money(inb / cart) : '—'}</span></div>
+      <div><span>Product total</span><span>${money(tot)}</span></div><div><span>Inbound costs (total)</span><span>${money(inb)}</span></div>
       <div><span>Supplier payable after this purchase</span><span>${money(Math.max(0, tot - paid))}</span></div></div>`;
     };
     box.insertAdjacentHTML('beforeend', lineHtml());
     $('#addln', el).onclick = () => { box.insertAdjacentHTML('beforeend', lineHtml()); calc(); };
     box.addEventListener('click', e => { if (e.target.classList.contains('rm') && box.children.length > 1) { e.target.closest('.ln').remove(); calc(); } });
+    box.addEventListener('input', e => {
+      if (e.target.classList.contains('c')) e.target.dataset.auto = '0';
+      if (e.target.classList.contains('pid')) e.target.closest('.ln').querySelector('.c').dataset.auto = '1';
+    });
     pf.addEventListener('input', calc); calc();
     pf.onsubmit = async e => {
       e.preventDefault(); const b = pf.querySelector('.go'); b.disabled = true;
@@ -130,9 +162,14 @@ export function initOps(h) {
     el.innerHTML = `<div class="bar"><h2>Retailer Sales</h2></div>${form}
     <h3 class="sec">Recent sales</h3>${sales.length
         ? `<div class="tablewrap"><table><thead><tr><th>Invoice</th><th>Date</th><th>Retailer</th><th>Total</th><th>Paid</th><th>Due</th><th></th></tr></thead><tbody>${sales.map(s =>
-          `<tr><td>${esc(s.invoice_no)}</td><td>${esc(s.sale_date)}</td><td>${esc(rname[s.retailer_id] || '')}</td><td>${money(s.total)}</td><td>${money(s.paid)}</td><td><b>${money(s.due)}</b></td><td><button class="btn sm ghost" data-inv="${s.id}">Invoice</button></td></tr>`).join('')}</tbody></table></div>`
+          `<tr><td>${esc(s.invoice_no)}</td><td>${esc(s.sale_date)}</td><td>${esc(rname[s.retailer_id] || '')}</td><td>${money(s.total)}</td><td>${money(s.paid)}</td><td><b>${money(s.due)}</b></td><td><button class="btn sm ghost" data-inv="${s.id}">Invoice</button>${has('owner') ? ` <button class="btn sm ghost" data-void="${s.id}">Cancel</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`
         : '<p class="empty">No sales recorded yet.</p>'}`;
     el.querySelectorAll('[data-inv]').forEach(b => b.onclick = () => openInvoice(b.dataset.inv).catch(e => toast(errMsg(e), 'err')));
+    el.querySelectorAll('[data-void]').forEach(b => b.onclick = () => {
+      const s = sales.find(x => x.id === b.dataset.void);
+      confirmReason('Cancel sale ' + s.invoice_no, 'Stock returns to the warehouse at its original cost and the delivery expense is reversed. Payments received on this sale must be reversed first.',
+        r => sb.rpc('void_sale', { p_sale: s.id, p_reason: r }), () => viewSales(el));
+    });
 
     const sf = $('#sf', el); if (!sf) return;
     const box = $('#lines', el);
@@ -268,7 +305,7 @@ export function initOps(h) {
       sb.from('retailers').select('id,name').order('name'),
       sb.from('v_payment_methods').select('id,name').order('name'),
       sb.from('v_my_sales').select('id,invoice_no,retailer_id,sale_date,total,paid,due').gt('due', 0).order('sale_date'),
-      fin ? sb.from('payments').select('payment_date,amount,retailers(name),financial_accounts(name)').order('created_at', { ascending: false }).limit(30) : Promise.resolve({ data: [] })
+      fin ? sb.from('payments').select('id,payment_date,amount,retailers(name),financial_accounts(name)').order('created_at', { ascending: false }).limit(30) : Promise.resolve({ data: [] })
     ]);
     chk(rs);
     const [ret, acc, open, recent] = rs.map(r => r.data);
@@ -286,9 +323,14 @@ export function initOps(h) {
       <div id="inv"></div><div id="tot" class="sum" style="display:none"></div>
       <button class="btn go" style="width:100%">Save payment</button></form></div>` : ''}
     ${fin ? `<h3 class="sec">Recent payments</h3>${recent.length
-        ? `<div class="tablewrap"><table><thead><tr><th>Date</th><th>Retailer</th><th>Amount</th><th>Method</th></tr></thead><tbody>${recent.map(p =>
-          `<tr><td>${esc(p.payment_date)}</td><td>${esc(p.retailers?.name || '')}</td><td>${money(p.amount)}</td><td>${esc(p.financial_accounts?.name || '')}</td></tr>`).join('')}</tbody></table></div>`
+        ? `<div class="tablewrap"><table><thead><tr><th>Date</th><th>Retailer</th><th>Amount</th><th>Method</th>${has('owner', 'accountant') ? '<th></th>' : ''}</tr></thead><tbody>${recent.map(p =>
+          `<tr><td>${esc(p.payment_date)}</td><td>${esc(p.retailers?.name || '')}</td><td>${money(p.amount)}</td><td>${esc(p.financial_accounts?.name || '')}</td>${has('owner', 'accountant') ? `<td><button class="btn sm ghost" data-rev="${p.id}">Reverse</button></td>` : ''}</tr>`).join('')}</tbody></table></div>`
         : '<p class="empty">No payments recorded yet.</p>'}` : ''}`;
+    el.querySelectorAll('[data-rev]').forEach(b => b.onclick = () => {
+      const p = recent.find(x => x.id === b.dataset.rev);
+      confirmReason('Reverse payment of ' + money(p.amount), 'The money is taken back out of the account and the invoice balances are restored. Use this to correct a wrongly recorded payment.',
+        r => sb.rpc('reverse_payment', { p_payment: p.id, p_reason: r }), () => viewPayments(el));
+    });
 
     const f = $('#pyf', el); if (!f) return;
     const sum = () => {
