@@ -2,6 +2,8 @@ import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
 import { initOps } from './ops.js';
 import { initFin } from './fin.js';
 import { initReports } from './reports.js';
+import { initDash } from './dash.js';
+import { ic } from './icons.js';
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
@@ -214,39 +216,43 @@ const H = { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, field, 
 const ops = initOps(H);
 const fin = initFin(H, ops);
 const rep = initReports(H);
+const dash = initDash(H);
 
 /* ---------- shell & routing ---------- */
 const ALL = ['owner', 'partner', 'salesman', 'accountant', 'warehouse'];
 const FIN = ['owner', 'partner', 'accountant'];
 const NAV = [
-  { id: 'dash', t: 'Dashboard', roles: ALL, fn: viewDash },
-  { id: 'sales', t: 'Retailer Sales', roles: ['owner', 'partner', 'salesman'], fn: ops.viewSales },
-  { id: 'facebook', t: 'Facebook Orders', roles: ALL, fn: fin.viewFacebook },
-  { id: 'payments', t: 'Payments & Receivables', roles: ['owner', 'partner', 'accountant', 'salesman'], fn: ops.viewPayments },
-  { id: 'purchases', t: 'Purchases', roles: ['owner', 'partner', 'accountant', 'warehouse'], fn: ops.viewPurchases },
-  { id: 'products', t: 'Products & Stock', roles: ALL, fn: viewProducts },
-  { id: 'inventory', t: 'Inventory Control', roles: ['owner', 'partner', 'accountant', 'warehouse'], fn: fin.viewInventory },
-  { id: 'expenses', t: 'Expenses', roles: FIN, fn: fin.viewExpenses },
-  { id: 'finance', t: 'Finance & Accounts', roles: FIN, fn: fin.viewFinance },
-  { id: 'capital', t: 'Partners & Capital', roles: FIN, fn: fin.viewCapital },
-  { id: 'retailers', t: 'Retailers', roles: ALL, fn: viewRetailers },
-  { id: 'suppliers', t: 'Suppliers', roles: ['owner', 'partner', 'accountant', 'warehouse'], fn: viewSuppliers },
-  { id: 'reports', t: 'Reports', roles: ['owner', 'partner', 'accountant', 'warehouse'], fn: rep.viewReports },
-  { id: 'custom', t: 'Custom Report', roles: FIN, fn: rep.viewCustom },
-  { id: 'users', t: 'Users & Roles', roles: ['owner'], fn: viewUsers },
-  { id: 'audit', t: 'Audit Log', roles: ['owner'], fn: fin.viewAudit },
-  { id: 'settings', t: 'Settings', roles: ['owner'], fn: fin.viewSettings }
+  { id: 'dash', ic: 'layout', t: 'Dashboard', roles: ALL, fn: viewDash },
+  { id: 'sales', ic: 'bag', t: 'Retailer Sales', roles: ['owner', 'partner', 'salesman'], fn: ops.viewSales },
+  { id: 'facebook', ic: 'message', t: 'Facebook Orders', roles: ALL, fn: fin.viewFacebook },
+  { id: 'payments', ic: 'card', t: 'Payments & Receivables', roles: ['owner', 'partner', 'accountant', 'salesman'], fn: ops.viewPayments },
+  { id: 'purchases', ic: 'truck', t: 'Purchases', roles: ['owner', 'partner', 'accountant', 'warehouse'], fn: ops.viewPurchases },
+  { id: 'products', ic: 'package', t: 'Products & Stock', roles: ALL, fn: viewProducts },
+  { id: 'inventory', ic: 'clipboard', t: 'Inventory Control', roles: ['owner', 'partner', 'accountant', 'warehouse'], fn: fin.viewInventory },
+  { id: 'expenses', ic: 'wallet', t: 'Expenses', roles: FIN, fn: fin.viewExpenses },
+  { id: 'finance', ic: 'landmark', t: 'Finance & Accounts', roles: FIN, fn: fin.viewFinance },
+  { id: 'capital', ic: 'usersRound', t: 'Partners & Capital', roles: FIN, fn: fin.viewCapital },
+  { id: 'retailers', ic: 'store', t: 'Retailers', roles: ALL, fn: viewRetailers },
+  { id: 'suppliers', ic: 'truck', t: 'Suppliers', roles: ['owner', 'partner', 'accountant', 'warehouse'], fn: viewSuppliers },
+  { id: 'reports', ic: 'chart', t: 'Reports', roles: ['owner', 'partner', 'accountant', 'warehouse'], fn: rep.viewReports },
+  { id: 'custom', ic: 'filter', t: 'Custom Report', roles: FIN, fn: rep.viewCustom },
+  { id: 'users', ic: 'user', t: 'Users & Roles', roles: ['owner'], fn: viewUsers },
+  { id: 'audit', ic: 'shield', t: 'Audit Log', roles: ['owner'], fn: fin.viewAudit },
+  { id: 'settings', ic: 'sliders', t: 'Settings', roles: ['owner'], fn: fin.viewSettings }
 ];
 
 function renderShell() {
   const items = NAV.filter(n => n.roles.includes(state.profile.role));
-  $('#app').innerHTML = `<header class="top"><button id="menu" aria-label="Menu">☰</button>
-  <img src="assets/logo.jpg" alt="" onerror="this.style.display='none'"><b>RS KrishiCare</b>
-  <div class="who">${esc(state.profile.full_name)}<br>${ROLE_LABEL[state.profile.role]}</div><button id="lo" title="Sign out">⎋</button></header>
-  <nav class="side" id="nav">${items.map(n => `<a href="#${n.id}" data-id="${n.id}">${n.t}</a>`).join('')}</nav>
+  $('#app').innerHTML = `<header class="top"><button id="menu" class="hb" aria-label="Menu">${ic('menu', 22)}</button>
+  <div class="brand-h"><img src="assets/logo.jpg" alt="" onerror="this.style.display='none'"><b>RS KrishiCare</b></div>
+  <div class="who"><b>${esc(state.profile.full_name)}</b><span>${ROLE_LABEL[state.profile.role]}</span></div>
+  <button id="rf" class="hb sub" aria-label="Refresh data" title="Refresh">${ic('refresh', 18)}</button>
+  <button id="lo" class="hb" aria-label="Sign out" title="Sign out">${ic('logout', 20)}</button></header>
+  <nav class="side" id="nav">${items.map(n => `<a href="#${n.id}" data-id="${n.id}">${ic(n.ic, 20)}<span>${n.t}</span></a>`).join('')}</nav>
   <main id="view"></main>`;
   $('#menu').onclick = () => $('#nav').classList.toggle('open');
   $('#lo').onclick = logout;
+  $('#rf').onclick = () => { const b = $('#rf'); b.disabled = true; route().finally(() => { b.disabled = false; }); };
   $('#nav').onclick = () => $('#nav').classList.remove('open');
   window.onhashchange = route; route();
 }
@@ -266,48 +272,7 @@ const card = (label, val, cls = '') => `<div class="card ${cls}"><div class="l">
 async function viewDash(el) {
   if (has('salesman')) return dashSales(el);
   if (has('warehouse')) return dashStore(el);
-  const qs = [
-    ['v_dashboard', sb.from('v_dashboard').select('*').maybeSingle()],
-    ['v_account_balances', sb.from('v_account_balances').select('*').order('name')],
-    ['v_partner_summary', sb.from('v_partner_summary').select('*').order('name')],
-    ['v_stock', sb.from('v_stock').select('name,unit,qty_on_hand,min_stock').eq('is_low', true).order('name').limit(10)],
-    ['v_daily', sb.from('v_daily').select('*').order('day', { ascending: false }).limit(14)]
-  ];
-  const res = await Promise.all(qs.map(x => x[1]));
-  const bad = res.map((r, i) => r.error ? `${qs[i][0]}: ${r.error.message}` : null).filter(Boolean);
-  if (bad.length) { el.innerHTML = `<p class="err">The dashboard could not be loaded. Technical details:<br><small>${esc(bad.join(' | '))}</small></p>`; return; }
-  const [f, a, p, s, dy] = res;
-  const d = f.data || {};
-  const neg = v => Number(v) < 0 ? 'neg' : '';
-  const t = (dy.data || []).find(x => x.day === today()) || { sales: 0, expenses: 0, profit: 0 };
-  el.innerHTML = `<div class="bar"><h2>Dashboard</h2></div>
-  <h3 class="sec">Today</h3><div class="grid">
-    ${card('Sales', money(t.sales))}${card('Expenses and losses', money(t.expenses))}${card('Profit', money(t.profit), neg(t.profit))}</div>
-  <h3 class="sec">Capital and equity</h3><div class="grid">
-    ${card('Initial investment', money(d.initial_investment))}${card('Additional partner capital', money(d.additional_capital))}
-    ${card('Current business equity', money(d.business_equity), 'hi')}${card('Retained profit', money(d.retained_profit), neg(d.retained_profit))}
-    ${card('Capital withdrawals', money(d.capital_withdrawals))}${card('Profit withdrawals', money(d.profit_withdrawals))}</div>
-  <h3 class="sec">Sales and profit</h3><div class="grid">
-    ${card('Total sales', money(d.total_sales))}${card('Gross profit', money(d.gross_profit), neg(d.gross_profit))}
-    ${card('Net profit', money(d.net_profit), neg(d.net_profit))}${card('Net margin', num(d.net_margin_pct) + '%')}
-    ${card('Operating expenses', money(d.total_expenses))}${card('Damage / loss', money(d.damage_loss))}</div>
-  <h3 class="sec">Stock and dues</h3><div class="grid">
-    ${card('Stock quantity', num(d.stock_qty))}${card('Stock value', money(d.stock_value))}
-    ${card('Low-stock items', num(d.low_stock_count), Number(d.low_stock_count) > 0 ? 'neg' : '')}
-    ${card('Retailer due', money(d.retailer_due))}${card('Supplier due', money(d.supplier_due))}</div>
-  <h3 class="sec">Cash, bank and mobile wallets</h3><div class="grid">
-    ${(a.data || []).map(x => card(esc(x.name), money(x.balance), neg(x.balance))).join('')}</div>
-  <h3 class="sec">Facebook orders</h3><div class="grid">
-    ${card('Pending', num(d.fb_pending))}${card('Delivered', num(d.fb_delivered))}${card('Returned', num(d.fb_returned))}
-    ${card('COD pending', money(d.fb_cod_pending))}${card('Courier advance pending', money(d.courier_advance_pending))}</div>
-  <h3 class="sec">Partners</h3><div class="tablewrap"><table><thead><tr><th>Partner</th><th>Profit share</th><th>Capital</th><th>Profit entitlement</th><th>Profit withdrawn</th><th>Equity</th></tr></thead><tbody>
-    ${(p.data || []).map(x => `<tr><td>${esc(x.name)}</td><td>${num(x.profit_pct)}%</td><td>${money(x.capital_balance)}</td><td>${money(x.profit_share)}</td><td>${money(x.profit_withdrawn)}</td><td><b>${money(x.partner_equity)}</b></td></tr>`).join('')}</tbody></table></div>
-  <h3 class="sec">Daily sales, expenses and profit</h3>${(dy.data || []).length
-      ? `<div class="tablewrap"><table><thead><tr><th>Date</th><th>Sales</th><th>Expenses and losses</th><th>Profit</th></tr></thead><tbody>${dy.data.map(x => `<tr><td>${esc(x.day)}</td><td>${money(x.sales)}</td><td>${money(x.expenses)}</td><td><b>${money(x.profit)}</b></td></tr>`).join('')}</tbody></table></div>`
-      : '<p class="empty">No daily activity recorded yet.</p>'}
-  <h3 class="sec">Low-stock products</h3>${(s.data || []).length
-      ? `<div class="tablewrap"><table><tbody>${s.data.map(x => `<tr><td>${esc(x.name)}</td><td><span class="badge low">${num(x.qty_on_hand)} ${esc(x.unit)}</span></td><td><small>Minimum ${num(x.min_stock)}</small></td></tr>`).join('')}</tbody></table></div>`
-      : '<p class="empty">No products are below their minimum stock level.</p>'}`;
+  return dash.view(el);
 }
 
 async function dashStore(el) {
