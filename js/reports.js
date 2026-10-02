@@ -89,9 +89,9 @@ export function initReports(h) {
     const sOpts = (rows, all = 'All') => `<option value="">${all}</option>` + rows.map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('');
     const FILT = {
       channel: () => `<label>Channel<select name="channel"><option value="">All channels</option><option value="retailer">Retailer</option><option value="facebook">Facebook</option></select></label>`,
-      product: () => `<label>Product<select name="product">${sOpts(L.products, 'All products')}</select></label>`,
-      retailer: () => `<label>Retailer<select name="retailer">${sOpts(L.retailers, 'All retailers')}</select></label>`,
-      supplier: () => `<label>Supplier<select name="supplier">${sOpts(L.suppliers, 'All suppliers')}</select></label>`,
+      product: () => `<label>Product<select name="product" class="ss">${sOpts(L.products, 'All products')}</select></label>`,
+      retailer: () => `<label>Retailer<select name="retailer" class="ss">${sOpts(L.retailers, 'All retailers')}</select></label>`,
+      supplier: () => `<label>Supplier<select name="supplier" class="ss">${sOpts(L.suppliers, 'All suppliers')}</select></label>`,
       account: () => `<label>Payment method / account<select name="account">${sOpts(L.accounts, 'All accounts')}</select></label>`,
       xcategory: () => `<label>Expense category<select name="category">${sOpts(L.xcats, 'All categories')}</select></label>`,
       pcategory: () => `<label>Product category<select name="category">${sOpts(L.pcats, 'All categories')}</select></label>`,

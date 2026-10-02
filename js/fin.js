@@ -1,7 +1,7 @@
 // Facebook orders, Expenses, Finance & Accounts, Partners & Capital, Inventory Control, Audit Log, Settings.
 // Every write goes through database RPCs (atomic, role-checked, audited).
 export function initFin(h, ops) {
-  const { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, opts, chk, listView, LOADING, confirmReason } = h;
+  const { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, opts, chk, listView, LOADING, confirmReason, fsec } = h;
   const numIn = (cls, label, val = 0) => `<label>${label}<input class="${cls}" type="number" step="any" min="0" inputmode="decimal" value="${val}"></label>`;
   const fld = (name, label, val = 0, extra = '') => `<label>${label}<input name="${name}" type="number" step="any" min="0" inputmode="decimal" value="${val}" ${extra}></label>`;
   const table = (heads, rows, empty) => rows.length
@@ -30,16 +30,16 @@ export function initFin(h, ops) {
 
     const form = !canCreate ? '' : !prod.length
       ? `<div class="hint">Add products before creating Facebook orders.</div>`
-      : `<div class="box"><h3 style="margin:0 0 6px">New Facebook order</h3><form id="ff">
-        <label>Customer name<input name="customer_name" required></label>
-        <div class="row2"><label>Mobile<input name="mobile" type="tel" required></label>
-        <label>Courier<select name="courier_id"><option value="">— Not assigned —</option>${opts(cour)}</select></label></div>
-        <label>Delivery address<input name="address" required></label>
-        <h3 class="sec">Products</h3><div id="lines"></div><button type="button" class="btn ghost sm" id="addln">+ Add another product</button>
-        <h3 class="sec">Courier advance <small>(pass-through — not revenue, not expense)</small></h3>
-        <div class="row2">${fld('courier_advance', 'Advance received from customer')}<label>Received via<select name="advance_account_id"><option value="">— Select —</option>${opts(acc)}</select></label></div>
-        <label>Notes<input name="notes"></label><div id="prev"></div>
-        <button class="btn go" style="width:100%">Create order</button></form></div>`;
+      : `<div class="box stack"><h3 style="margin:0 0 4px">New Facebook order</h3><form id="ff">
+        ${fsec(1, 'Customer & delivery', `<label>Customer name<input name="customer_name" required></label>
+          <div class="row2"><label>Mobile<input name="mobile" type="tel" required></label>
+          <label>Courier<select name="courier_id" class="ss"><option value="">— Not assigned —</option>${opts(cour)}</select></label></div>
+          <label>Delivery address<input name="address" required></label>`)}
+        ${fsec(2, 'Products', `<div id="lines"></div><button type="button" class="btn ghost sm" id="addln">+ Add another product</button>`)}
+        ${fsec(3, 'Courier advance', `<div class="row2">${fld('courier_advance', 'Advance received from customer')}<label>Received via<select name="advance_account_id"><option value="">— Select —</option>${opts(acc)}</select></label></div>`, 'Pass-through — not revenue and not an expense')}
+        ${fsec(4, 'Notes & summary', `<label>Notes<input name="notes"></label><div id="prev"></div>
+          <button class="btn go" style="width:100%">Create order</button>`)}
+        </form></div>`;
 
     const rowsHtml = orders.map(o => {
       const codPending = o.status === 'Delivered' ? Number(o.cod_amount) - Number(o.cod_received) : 0;
@@ -54,6 +54,8 @@ export function initFin(h, ops) {
         ${canStatus && NEXT[o.status].length ? `<button class="btn sm" data-a="st" data-id="${o.id}">Update status</button>` : ''}
         ${canSettle && Number(o.courier_advance) > 0 && !o.advance_settled && FINISHED.includes(o.status) ? `<button class="btn sm ghost" data-a="adv" data-id="${o.id}">Settle advance</button>` : ''}
         ${canSettle && o.status === 'Delivered' && codPending > 0 ? `<button class="btn sm ghost" data-a="cod" data-id="${o.id}">Receive COD</button>` : ''}
+        ${canSettle && Number(o.cod_received) > 0 ? `<button class="btn sm ghost" data-a="rcod" data-id="${o.id}">Reverse COD</button>` : ''}
+        ${canSettle && o.advance_settled ? `<button class="btn sm ghost" data-a="radv" data-id="${o.id}">Undo settlement</button>` : ''}
       </td></tr>`;
     });
 
@@ -77,13 +79,17 @@ export function initFin(h, ops) {
         if (b.dataset.a === 'cod') modal('Receive COD — ' + o.order_ref,
           `${fld('amount', 'Amount received', Number(o.cod_amount) - Number(o.cod_received), 'required')}<label>Received into<select name="account">${opts(acc)}</select></label><label>Date<input name="date" type="date" value="${today()}"></label>`,
           async fd => { const { error } = await sb.rpc('fb_receive_cod', { p_order: o.id, p_amount: N(fd.get('amount')), p_account: fd.get('account'), p_date: fd.get('date') }); if (error) throw error; toast('COD recorded.'); viewFacebook(el); });
+        if (b.dataset.a === 'rcod') confirmReason('Reverse COD — ' + o.order_ref, `The ${money(o.cod_received)} received for this order is taken back out of the account(s) it was deposited into. Use this to correct a wrongly recorded COD receipt.`,
+          r => sb.rpc('fb_reverse_cod', { p_order: o.id, p_reason: r }), () => viewFacebook(el));
+        if (b.dataset.a === 'radv') confirmReason('Undo courier settlement — ' + o.order_ref, `The ${money(o.courier_advance)} paid to the courier is returned to the account it was paid from, and the advance becomes pending again.`,
+          r => sb.rpc('fb_reverse_advance', { p_order: o.id, p_reason: r }), () => viewFacebook(el));
       } catch (err) { toast(errMsg(err), 'err'); }
     };
 
     const ff = $('#ff', el); if (!ff) return;
     const box = $('#lines', el);
-    const lineHtml = () => `<div class="ln"><label>Product<select class="pid">${prod.map(p => `<option value="${p.id}">${esc(p.name)} — in stock ${num(p.qty_on_hand)} ${esc(p.unit)}</option>`).join('')}</select></label>
-      <div class="row2">${numIn('q', 'Quantity', 1)}<label>Selling price<input class="p" data-auto="1" type="number" step="any" min="0" inputmode="decimal" value="${prod[0].facebook_price}"></label></div>
+    const lineHtml = () => `<div class="ln"><label>Product<select class="pid ss"><option value="">— Select product —</option>${prod.map(p => `<option value="${p.id}">${esc(p.name)} — in stock ${num(p.qty_on_hand)} ${esc(p.unit)}</option>`).join('')}</select></label>
+      <div class="row2">${numIn('q', 'Quantity', 1)}<label>Selling price<input class="p" data-auto="1" type="number" step="any" min="0" inputmode="decimal" value="0"></label></div>
       <div class="row2">${numIn('d', 'Discount', 0)}<button type="button" class="btn ghost sm rm" style="align-self:end;margin-bottom:10px">✕ Remove</button></div></div>`;
     const calc = () => {
       const ls = [...box.querySelectorAll('.ln')].map(r => ({ q: N(r.querySelector('.q').value), p: N(r.querySelector('.p').value), d: N(r.querySelector('.d').value) }));
@@ -105,6 +111,7 @@ export function initFin(h, ops) {
       try {
         const fd = new FormData(ff);
         const items = [...box.querySelectorAll('.ln')].map(r => ({ product_id: r.querySelector('.pid').value, qty: N(r.querySelector('.q').value), unit_price: N(r.querySelector('.p').value), discount: N(r.querySelector('.d').value) }));
+        if (items.some(i => !i.product_id)) throw new Error('Select a product for every line (or remove the empty line).');
         const p = { customer_name: fd.get('customer_name'), mobile: fd.get('mobile'), address: fd.get('address'), courier_id: fd.get('courier_id') || '', courier_advance: N(fd.get('courier_advance')), advance_account_id: fd.get('advance_account_id') || '', notes: fd.get('notes'), items };
         const { error } = await sb.rpc('create_fb_order', { p }); if (error) throw error;
         toast('Order created.'); await viewFacebook(el);
@@ -242,19 +249,19 @@ export function initFin(h, ops) {
     el.innerHTML = `<div class="bar"><h2>Inventory Control</h2></div>
     <div class="hint">Stock never changes silently. Every change is recorded with quantity, cost, reason, date and user. Damage and loss reduce stock and appear as a business loss.</div>
     ${canAct && prod.length ? `<div class="box"><h3 style="margin:0 0 6px">Record damage / loss</h3><form id="lf">
-      <label>Product<select name="product">${popt}</select></label>
+      <label>Product<select name="product" class="ss" required><option value="">— Select product —</option>${popt}</select></label>
       <div class="row2">${fld('qty', 'Quantity lost', 0, 'required')}<label>Reason<select name="reason">${['damage', 'expired', 'broken', 'lost', 'theft', 'other'].map(r => `<option value="${r}">${label(r)}</option>`).join('')}</select></label></div>
       <div class="row2"><label>Date<input name="date" type="date" value="${today()}"></label><label>Notes<input name="notes"></label></div>
       <button class="btn go" style="width:100%">Record loss</button></form></div>
     <div class="box"><h3 style="margin:0 0 6px">Increase stock (adjustment)</h3><p class="mut">Use only for verified stock found or opening stock. Normal stock arrives through Purchases.</p><form id="af">
-      <label>Product<select name="product">${popt}</select></label>
+      <label>Product<select name="product" class="ss" required><option value="">— Select product —</option>${popt}</select></label>
       <div class="row2">${fld('qty', 'Quantity to add', 0, 'required')}${fld('cost', 'Unit cost', 0, 'required')}</div>
       <div class="row2"><label>Date<input name="date" type="date" value="${today()}"></label><label>Notes<input name="notes" required placeholder="Reason for adjustment"></label></div>
       <button class="btn go" style="width:100%">Save adjustment</button></form></div>` : (canAct ? '<div class="hint">Add products first.</div>' : '')}
     <h3 class="sec">Damage / loss history</h3>
     ${table(['Date', 'Product', 'Reason', 'Quantity', 'Unit cost', 'Loss value', 'Notes'], loss.map(l => `<tr><td>${esc(l.loss_date)}</td><td>${esc(l.products?.name || '')}</td><td>${esc(label(l.reason))}</td><td>${num(l.qty)}</td><td>${money(l.unit_cost)}</td><td><b>${money(l.total_cost)}</b></td><td>${esc(l.notes || '')}</td></tr>`), 'No losses recorded.')}
     <h3 class="sec">Stock movement history</h3>
-    <label style="max-width:320px">Filter by product<select id="mvf"><option value="">All products</option>${prod.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></label>
+    <label style="max-width:320px">Filter by product<select id="mvf" class="ss"><option value="">All products</option>${prod.map(p => `<option value="${p.id}">${esc(p.name)}</option>`).join('')}</select></label>
     <div id="mvt"></div>`;
     const drawMv = () => {
       const f = $('#mvf', el).value, rows = mv.filter(m => !f || m.product_id === f);

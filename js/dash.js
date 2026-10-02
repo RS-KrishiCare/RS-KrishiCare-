@@ -26,7 +26,8 @@ export function initDash(H) {
   };
   const shortDay = iso => new Date(iso + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
   const rel = ts => {
-    const d = new Date(ts), m = Math.round((Date.now() - d.getTime()) / 60000);
+    const d = new Date(ts); if (isNaN(d)) return '';
+    const m = Math.round((Date.now() - d.getTime()) / 60000);
     if (m < 1) return 'Just now';
     if (m < 60) return m + ' min ago';
     if (m < 1440) return Math.floor(m / 60) + ' h ago';

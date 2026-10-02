@@ -1,7 +1,7 @@
 // Operations: Purchases, Retailer Sales, Invoices, Payments & Receivables.
 // All accounting truth (stock, WAC, COGS, dues, balances) is computed by the database RPCs.
 export function initOps(h) {
-  const { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, opts, chk, confirmReason } = h;
+  const { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, opts, chk, confirmReason, fsec } = h;
   const numIn = (cls, label, val = 0) => `<label>${label}<input class="${cls}" type="number" step="any" min="0" inputmode="decimal" value="${val}"></label>`;
   const fld = (name, label, val = 0, extra = '') => `<label>${label}<input name="${name}" type="number" step="any" min="0" inputmode="decimal" value="${val}" ${extra}></label>`;
 
@@ -24,22 +24,17 @@ export function initOps(h) {
     if (canCreate) {
       form = (!activeSup.length || !prod.length)
         ? `<div class="hint">Before recording a purchase, add at least one <b>supplier</b> and one <b>product</b>.</div>`
-        : `<div class="box"><h3 style="margin:0 0 6px">New purchase</h3>
+        : `<div class="box stack"><h3 style="margin:0 0 4px">New purchase</h3>
         <form id="pf">
-          <label>Supplier<select name="supplier_id" required>${opts(activeSup)}</select></label>
-          <div class="row2"><label>Purchase date<input name="purchase_date" type="date" value="${today()}" required></label>
-          <label>Reference<input name="reference"></label></div>
-          <h3 class="sec">Inbound costs (added to landing cost)</h3>
-          <div class="row2">${fld('transport_cost', 'Transport agency')}${fld('loading_cost', 'Loading')}</div>
-          <div class="row2">${fld('van_cost', 'Van / godown inbound')}${fld('other_cost', 'Other inbound')}</div>
-          <h3 class="sec">Product lines</h3><div id="lines"></div>
-          <button type="button" class="btn ghost sm" id="addln">+ Add another product</button>
-          <h3 class="sec">Payment to supplier</h3>
-          <div class="row2">${fld('paid_amount', 'Amount paid now')}
-          <label>Paid from<select name="account_id"><option value="">— Select —</option>${opts(acc)}</select></label></div>
-          <label>Notes<input name="notes"></label>
-          <div id="prev"></div>
-          <button class="btn go" style="width:100%">Save purchase and receive stock</button>
+          ${fsec(1, 'Supplier & date', `<label>Supplier<select name="supplier_id" class="ss" required><option value="">— Select supplier —</option>${opts(activeSup)}</select></label>
+            <div class="row2"><label>Purchase date<input name="purchase_date" type="date" value="${today()}" required></label><label>Reference<input name="reference"></label></div>`)}
+          ${fsec(2, 'Inbound costs', `<div class="row2">${fld('transport_cost', 'Transport agency')}${fld('loading_cost', 'Loading')}</div>
+            <div class="row2">${fld('van_cost', 'Van / godown inbound')}${fld('other_cost', 'Other inbound')}</div>`, 'Enter once for the whole purchase — shared equally per carton')}
+          ${fsec(3, 'Product lines', `<div id="lines"></div><button type="button" class="btn ghost sm" id="addln">+ Add another product</button>`)}
+          ${fsec(4, 'Payment to supplier', `<div class="row2">${fld('paid_amount', 'Amount paid now')}
+            <label>Paid from<select name="account_id"><option value="">— Select —</option>${opts(acc)}</select></label></div>`)}
+          ${fsec(5, 'Notes & summary', `<label>Notes<input name="notes"></label><div id="prev"></div>
+            <button class="btn go" style="width:100%">Save purchase and receive stock</button>`)}
         </form></div>`;
     }
 
@@ -86,7 +81,7 @@ export function initOps(h) {
     const pf = $('#pf', el); if (!pf) return;
     const box = $('#lines', el);
     const upcOf = pid => N(prod.find(x => x.id === pid)?.units_per_carton);
-    const lineHtml = () => `<div class="ln"><label>Product<select class="pid">${prod.map(p => `<option value="${p.id}">${esc(p.name)} (${esc(p.unit)})${p.units_per_carton ? ' · ' + num(p.units_per_carton) + ' per carton' : ''}</option>`).join('')}</select></label>
+    const lineHtml = () => `<div class="ln"><label>Product<select class="pid ss"><option value="">— Select product —</option>${prod.map(p => `<option value="${p.id}">${esc(p.name)} (${esc(p.unit)})${p.units_per_carton ? ' · ' + num(p.units_per_carton) + ' per carton' : ''}</option>`).join('')}</select></label>
       <div class="row2">${numIn('q', 'Quantity (pieces)', 1)}${numIn('p', 'Unit purchase price', 0)}</div>
       <div class="row2"><label>Cartons <small>(automatic)</small><input class="c" data-auto="1" type="number" step="any" min="0" inputmode="decimal" value="0"></label><button type="button" class="btn ghost sm rm" style="align-self:end;margin-bottom:10px">✕ Remove</button></div></div>`;
     const autoCartons = () => box.querySelectorAll('.ln').forEach(r => {
@@ -122,6 +117,7 @@ export function initOps(h) {
       try {
         const fd = new FormData(pf);
         const items = [...box.querySelectorAll('.ln')].map(r => ({ product_id: r.querySelector('.pid').value, qty: N(r.querySelector('.q').value), unit_price: N(r.querySelector('.p').value), cartons: N(r.querySelector('.c').value) }));
+        if (items.some(i => !i.product_id)) throw new Error('Select a product for every line (or remove the empty line).');
         const p = { supplier_id: fd.get('supplier_id'), purchase_date: fd.get('purchase_date'), reference: fd.get('reference'), transport_cost: N(fd.get('transport_cost')), loading_cost: N(fd.get('loading_cost')), van_cost: N(fd.get('van_cost')), other_cost: N(fd.get('other_cost')), paid_amount: N(fd.get('paid_amount')), account_id: fd.get('account_id') || '', notes: fd.get('notes'), items };
         const { error } = await sb.rpc('create_purchase', { p }); if (error) throw error;
         toast('Purchase saved. Stock has been updated.'); await viewPurchases(el);
@@ -145,19 +141,17 @@ export function initOps(h) {
 
     const form = (!activeRet.length || !prod.length)
       ? `<div class="hint">Before recording a sale, add a <b>retailer</b> and a <b>product</b>, and receive stock through a purchase.</div>`
-      : `<div class="box"><h3 style="margin:0 0 6px">New retailer sale</h3><form id="sf">
-        <label>Retailer<select name="retailer_id" required>${opts(activeRet)}</select></label>
-        <div class="row2"><label>Sale date<input name="sale_date" type="date" value="${today()}" required></label><label>Order reference<input name="order_ref"></label></div>
-        <label>Delivery address <small>(optional — defaults to the retailer’s address)</small><input name="delivery_address"></label>
-        <h3 class="sec">Products</h3><div id="lines"></div><button type="button" class="btn ghost sm" id="addln">+ Add another product</button>
-        <h3 class="sec">Discount and charges</h3>
-        <div class="row2">${fld('discount', 'Discount (total)')}${fld('delivery_charge', 'Delivery charge billed to customer')}</div>
-        <h3 class="sec">Our delivery cost <small>(recorded as an expense, not shown on the invoice)</small></h3>
-        <div class="row2">${fld('retailer_delivery_cost', 'Retailer delivery cost')}<label>Paid from<select name="delivery_account_id"><option value="">— Select —</option>${opts(acc)}</select></label></div>
-        <h3 class="sec">Payment received</h3>
-        <div class="row2">${fld('paid_amount', 'Amount received now')}<label>Payment method<select name="account_id"><option value="">— Select —</option>${opts(acc)}</select></label></div>
-        <label>Notes<input name="notes"></label><div id="prev"></div>
-        <button class="btn go" style="width:100%">Save sale and generate invoice</button></form></div>`;
+      : `<div class="box stack"><h3 style="margin:0 0 4px">New retailer sale</h3><form id="sf">
+        ${fsec(1, 'Customer & order', `<label>Retailer<select name="retailer_id" class="ss" required><option value="">— Select retailer —</option>${opts(activeRet)}</select></label>
+          <div class="row2"><label>Sale date<input name="sale_date" type="date" value="${today()}" required></label><label>Order reference<input name="order_ref"></label></div>
+          <label>Delivery address <small>(optional — defaults to the retailer’s address)</small><input name="delivery_address"></label>`)}
+        ${fsec(2, 'Products', `<div id="lines"></div><button type="button" class="btn ghost sm" id="addln">+ Add another product</button>`)}
+        ${fsec(3, 'Discount & charges', `<div class="row2">${fld('discount', 'Discount (total)')}${fld('delivery_charge', 'Delivery charge billed to customer')}</div>`)}
+        ${fsec(4, 'Our delivery cost', `<div class="row2">${fld('retailer_delivery_cost', 'Retailer delivery cost')}<label>Paid from<select name="delivery_account_id"><option value="">— Select —</option>${opts(acc)}</select></label></div>`, 'Recorded as an expense — not shown on the invoice')}
+        ${fsec(5, 'Payment received', `<div class="row2">${fld('paid_amount', 'Amount received now')}<label>Payment method<select name="account_id"><option value="">— Select —</option>${opts(acc)}</select></label></div>`)}
+        ${fsec(6, 'Notes & summary', `<label>Notes<input name="notes"></label><div id="prev"></div>
+          <button class="btn go" style="width:100%">Save sale and generate invoice</button>`)}
+        </form></div>`;
 
     el.innerHTML = `<div class="bar"><h2>Retailer Sales</h2></div>${form}
     <h3 class="sec">Recent sales</h3>${sales.length
@@ -175,15 +169,15 @@ export function initOps(h) {
     const box = $('#lines', el);
     let rp = {};
     const priceFor = pid => rp[pid] ?? pmap[pid]?.sell_price ?? 0;
-    const lineHtml = () => `<div class="ln"><label>Product<select class="pid">${prod.map(p => `<option value="${p.id}">${esc(p.name)} — in stock ${num(p.qty_on_hand)} ${esc(p.unit)}</option>`).join('')}</select></label>
-      <div class="row2">${numIn('q', 'Quantity', 1)}<label>Unit price<input class="p" data-auto="1" type="number" step="any" min="0" inputmode="decimal" value="${priceFor(prod[0].id)}"></label></div>
+    const lineHtml = () => `<div class="ln"><label>Product<select class="pid ss"><option value="">— Select product —</option>${prod.map(p => `<option value="${p.id}">${esc(p.name)} — in stock ${num(p.qty_on_hand)} ${esc(p.unit)}</option>`).join('')}</select></label>
+      <div class="row2">${numIn('q', 'Quantity', 1)}<label>Unit price<input class="p" data-auto="1" type="number" step="any" min="0" inputmode="decimal" value="${priceFor('')}"></label></div>
       <div class="row2">${numIn('ld', 'Line discount', 0)}<button type="button" class="btn ghost sm rm" style="align-self:end;margin-bottom:10px">✕ Remove</button></div></div>`;
     const refreshPrices = () => box.querySelectorAll('.ln').forEach(r => { const p = r.querySelector('.p'); if (p.dataset.auto !== '0') p.value = priceFor(r.querySelector('.pid').value); });
     const calc = () => {
       const ls = [...box.querySelectorAll('.ln')].map(r => ({ pid: r.querySelector('.pid').value, q: N(r.querySelector('.q').value), p: N(r.querySelector('.p').value), ld: N(r.querySelector('.ld').value) }));
       const sub = ls.reduce((s, l) => s + l.q * l.p - l.ld, 0);
       const total = sub - N(sf.elements.discount.value) + N(sf.elements.delivery_charge.value), paid = N(sf.elements.paid_amount.value);
-      const over = ls.filter(l => l.q > N(pmap[l.pid]?.qty_on_hand)).map(l => pmap[l.pid]?.name);
+      const over = ls.filter(l => l.pid && l.q > N(pmap[l.pid]?.qty_on_hand)).map(l => pmap[l.pid]?.name);
       $('#prev', el).innerHTML = `<div class="sum">${over.length ? `<div class="err"><span>⚠ Insufficient stock: ${esc(over.join(', '))}</span></div>` : ''}
       <div><span>Subtotal</span><span>${money(sub)}</span></div><div><span>Total payable</span><b>${money(total)}</b></div>
       <div><span>Balance due after this sale</span><span>${money(Math.max(0, total - paid))}</span></div></div>`;
@@ -197,6 +191,7 @@ export function initOps(h) {
     });
     sf.addEventListener('input', calc);
     const loadPrices = async () => {
+      if (!sf.elements.retailer_id.value) { rp = {}; refreshPrices(); calc(); return; }
       const { data } = await sb.from('retailer_prices').select('product_id,price').eq('retailer_id', sf.elements.retailer_id.value);
       rp = Object.fromEntries((data || []).map(x => [x.product_id, x.price])); refreshPrices(); calc();
     };
@@ -207,6 +202,7 @@ export function initOps(h) {
       try {
         const fd = new FormData(sf);
         const items = [...box.querySelectorAll('.ln')].map(r => ({ product_id: r.querySelector('.pid').value, qty: N(r.querySelector('.q').value), unit_price: N(r.querySelector('.p').value), line_discount: N(r.querySelector('.ld').value) }));
+        if (items.some(i => !i.product_id)) throw new Error('Select a product for every line (or remove the empty line).');
         const p = { retailer_id: fd.get('retailer_id'), sale_date: fd.get('sale_date'), order_ref: fd.get('order_ref'), delivery_address: fd.get('delivery_address'), discount: N(fd.get('discount')), delivery_charge: N(fd.get('delivery_charge')), retailer_delivery_cost: N(fd.get('retailer_delivery_cost')), delivery_account_id: fd.get('delivery_account_id') || '', paid_amount: N(fd.get('paid_amount')), account_id: fd.get('account_id') || '', notes: fd.get('notes'), items };
         const { data: id, error } = await sb.rpc('create_sale', { p }); if (error) throw error;
         toast('Sale saved.'); await openInvoice(id); await viewSales(el);
@@ -317,7 +313,7 @@ export function initOps(h) {
         ? `<div class="tablewrap"><table><thead><tr><th>Retailer</th><th>Outstanding due</th></tr></thead><tbody>${list.map(r => `<tr><td>${esc(r.name)}</td><td><b>${money(dueBy[r.id])}</b></td></tr>`).join('')}</tbody></table></div>`
         : '<p class="empty">No outstanding balances.</p>'}
     ${list.length ? `<div class="box"><h3 style="margin:0 0 6px">Receive payment</h3><form id="pyf">
-      <label>Retailer<select name="retailer_id" required><option value="">— Select —</option>${list.map(r => `<option value="${r.id}">${esc(r.name)} — due ${money(dueBy[r.id])}</option>`).join('')}</select></label>
+      <label>Retailer<select name="retailer_id" class="ss" required><option value="">— Select retailer —</option>${list.map(r => `<option value="${r.id}">${esc(r.name)} — due ${money(dueBy[r.id])}</option>`).join('')}</select></label>
       <div class="row2">${fld('amount', 'Payment amount', 0, 'required')}<label>Payment method<select name="account_id" required>${opts(acc)}</select></label></div>
       <div class="row2"><label>Date<input name="payment_date" type="date" value="${today()}"></label><label>Reference<input name="reference"></label></div>
       <div id="inv"></div><div id="tot" class="sum" style="display:none"></div>
