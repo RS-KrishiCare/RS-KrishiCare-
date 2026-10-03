@@ -68,7 +68,7 @@ export function initReports(h) {
     w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(title)}</title><style>
       body{font-family:Arial,sans-serif;color:#173a2c;padding:18px}h1{margin:0;font-size:20px;color:#064b32}p{margin:4px 0 12px;color:#555;font-size:12px}
       table{border-collapse:collapse;width:100%;font-size:12px}th{background:#087143;color:#fff;text-align:left;padding:6px}td{padding:6px;border-bottom:1px solid #ccd6d0}
-      .tablewrap{overflow:visible}</style></head><body><h1>RS KrishiCare — ${esc(title)}</h1><p>${esc(sub)} · Generated ${esc(new Date().toLocaleString('en-GB'))}</p>${tableHtml}</body></html>`);
+      .tablewrap{overflow:visible}</style></head><body><div style="display:flex;align-items:center;gap:10px"><img src="${location.origin}/assets/logo.jpg" alt="" style="height:40px;width:40px;border-radius:50%;object-fit:cover" onerror="this.style.display='none'"><h1>RS KrishiCare — ${esc(title)}</h1></div><p>${esc(sub)} · Generated ${esc(new Date().toLocaleString('en-GB'))}</p>${tableHtml}</body></html>`);
     w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
   }
 

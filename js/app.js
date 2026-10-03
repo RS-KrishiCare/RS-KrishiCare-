@@ -248,13 +248,15 @@ function renderShell() {
   $('#app').innerHTML = `<header class="top"><button id="menu" class="hb" aria-label="Menu">${ic('menu', 22)}</button>
   <div class="brand-h"><img src="assets/logo.jpg" alt="" onerror="this.style.display='none'"><b>RS KrishiCare</b></div>
   <div class="who"><b>${esc(state.profile.full_name)}</b><span>${ROLE_LABEL[state.profile.role]}</span></div>
-  <button id="rf" class="hb sub" aria-label="Refresh data" title="Refresh">${ic('refresh', 18)}</button>
+  <button id="rf" class="hb sub hide-sm" aria-label="Refresh data" title="Refresh">${ic('refresh', 18)}</button>
   <button id="lo" class="hb" aria-label="Sign out" title="Sign out">${ic('logout', 20)}</button></header>
-  <nav class="side" id="nav">${items.map(n => `<a href="#${n.id}" data-id="${n.id}">${ic(n.ic, 20)}<span>${n.t}</span></a>`).join('')}</nav>
-  <main id="view"></main>`;
+  <nav class="side" id="nav"><div class="nav-brand"><img src="assets/wordmark.jpg" alt="RS KrishiCare" onerror="this.style.display='none'"><small>মানসম্মত কৃষিপণ্য, সঠিক পরামর্শ, সমৃদ্ধ কৃষক</small></div>${items.map(n => `<a href="#${n.id}" data-id="${n.id}">${ic(n.ic, 20)}<span>${n.t}</span></a>`).join('')}<button type="button" class="navbtn" id="nrf">${ic('refresh', 20)}<span>Refresh data</span></button></nav>
+  <main id="view"></main>
+  <footer class="foot"><img src="assets/wordmark.jpg" alt="RS KrishiCare" onerror="this.style.display='none'"><div>মানসম্মত কৃষিপণ্য, সঠিক পরামর্শ, সমৃদ্ধ কৃষক</div></footer>`;
   $('#menu').onclick = () => $('#nav').classList.toggle('open');
   $('#lo').onclick = logout;
-  $('#rf').onclick = () => { const b = $('#rf'); b.disabled = true; route().finally(() => { b.disabled = false; }); };
+  const refresh = () => { const b = $('#rf'); b.disabled = true; route().finally(() => { b.disabled = false; }); };
+  $('#rf').onclick = refresh; $('#nrf').onclick = refresh;
   $('#nav').onclick = () => $('#nav').classList.remove('open');
   window.onhashchange = route; route();
 }
