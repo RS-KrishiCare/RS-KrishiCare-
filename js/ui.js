@@ -29,6 +29,7 @@ export function initUI() {
     if (sel.dataset.ss) return;
     sel.dataset.ss = '1';
     const wrap = document.createElement('div'); wrap.className = 'ss-wrap';
+    if (sel.classList.contains('ss-hl')) wrap.classList.add('ss-hl');
     sel.parentNode.insertBefore(wrap, sel); wrap.appendChild(sel);
     sel.classList.add('ss-native'); sel.tabIndex = -1;
     const inp = document.createElement('input');

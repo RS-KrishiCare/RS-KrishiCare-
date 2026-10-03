@@ -81,7 +81,7 @@ export function initOps(h) {
     const pf = $('#pf', el); if (!pf) return;
     const box = $('#lines', el);
     const upcOf = pid => N(prod.find(x => x.id === pid)?.units_per_carton);
-    const lineHtml = () => `<div class="ln"><label>Product<select class="pid ss"><option value="">— Select product —</option>${prod.map(p => `<option value="${p.id}">${esc(p.name)} (${esc(p.unit)})${p.units_per_carton ? ' · ' + num(p.units_per_carton) + ' per carton' : ''}</option>`).join('')}</select></label>
+    const lineHtml = () => `<div class="ln"><label>Product<select class="pid ss ss-hl"><option value="">— Select product —</option>${prod.map(p => `<option value="${p.id}">${esc(p.name)} (${esc(p.unit)})${p.units_per_carton ? ' · ' + num(p.units_per_carton) + ' per carton' : ''}</option>`).join('')}</select></label>
       <div class="row2">${numIn('q', 'Quantity (pieces)', 1)}${numIn('p', 'Unit purchase price', 0)}</div>
       <div class="row2"><label>Cartons <small>(automatic)</small><input class="c" data-auto="1" type="number" step="any" min="0" inputmode="decimal" value="0"></label><button type="button" class="btn ghost sm rm" style="align-self:end;margin-bottom:10px">✕ Remove</button></div></div>`;
     const autoCartons = () => box.querySelectorAll('.ln').forEach(r => {
@@ -198,7 +198,7 @@ export function initOps(h) {
     const box = $('#lines', el);
     let rp = {}, own = {};
     const priceFor = pid => rp[pid] ?? pmap[pid]?.sell_price ?? 0;
-    const lineHtml = () => `<div class="ln"><label>Product<select class="pid ss"><option value="">— Select product —</option>${prod.map(p => `<option value="${p.id}">${esc(p.name)} — in stock ${num(p.qty_on_hand)} ${esc(p.unit)}</option>`).join('')}</select></label>
+    const lineHtml = () => `<div class="ln"><label>Product<select class="pid ss ss-hl"><option value="">— Select product —</option>${prod.map(p => `<option value="${p.id}">${esc(p.name)} — in stock ${num(p.qty_on_hand)} ${esc(p.unit)}</option>`).join('')}</select></label>
       <div class="row2">${numIn('q', 'Quantity', 1)}<label>Unit price<input class="p" data-auto="1" type="number" step="any" min="0" inputmode="decimal" value="${priceFor('')}"></label></div>
       <div class="row2">${numIn('ld', 'Line discount', 0)}<button type="button" class="btn ghost sm rm" style="align-self:end;margin-bottom:10px">✕ Remove</button></div></div>`;
     const refreshPrices = () => box.querySelectorAll('.ln').forEach(r => { const p = r.querySelector('.p'); if (p.dataset.auto !== '0') p.value = priceFor(r.querySelector('.pid').value); });
