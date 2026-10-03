@@ -255,3 +255,10 @@ header.top .brand-h img{border:2px solid #ffffffd9;box-shadow:0 0 0 1px #0000001
  background-image:linear-gradient(100deg,rgba(14,64,34,.97) 0%,rgba(17,78,41,.94) 50%,rgba(22,88,45,.82) 100%),url(../assets/cover.jpg);background-size:cover;background-position:center 72%}
 .d-top h1{color:#fff;font-size:22px}.d-top .d-greet{color:#fff;font-size:15px;font-weight:500}.d-top small{color:#ffffffc7}
 @media print{.foot{display:none}}
+
+/* highlighted "Select product" field (Purchases and Retailer Sales) */
+.ss-hl .ss-in{background-color:#eef7ea;border:1.5px solid #9ccf8c;box-shadow:0 0 0 1px #9ccf8c38;transition:border-color .15s,box-shadow .15s,background-color .15s}
+.ss-hl .ss-in::placeholder{color:#3f7a3a;opacity:1;font-weight:600}
+.ss-hl .ss-in:hover{border-color:#6fb85c}
+.ss-hl .ss-in:focus{background-color:#fff;border:2px solid #2e7d32;box-shadow:0 0 0 4px #2e7d3233;outline:none}
+.ss-hl .ss-list{border:2px solid #2e7d32}
