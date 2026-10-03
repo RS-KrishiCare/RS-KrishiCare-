@@ -4,7 +4,7 @@ import { initFin } from './fin.js';
 import { initReports } from './reports.js';
 import { initDash } from './dash.js';
 import { ic } from './icons.js';
-import { initUI } from './ui.js';
+import { initUI, setSelect } from './ui.js';
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
@@ -214,7 +214,7 @@ const confirmReason = (title, intro, fn, after) => modal(title, `<p>${intro}</p>
   toast('Completed successfully.'); await after();
 }, 'Confirm');
 const fsec = (n, title, body, hint = '') => `<div class="fsec"><div class="fsec-h"><span class="fsec-n">${n}</span><b>${title}</b>${hint ? `<small>${hint}</small>` : ''}</div><div class="fsec-b">${body}</div></div>`;
-const H = { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, field, readForm, listView, opts, chk, state, LOADING, confirmReason, fsec };
+const H = { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, field, readForm, listView, opts, chk, state, LOADING, confirmReason, fsec, setSel: setSelect };
 const ops = initOps(H);
 const fin = initFin(H, ops);
 const rep = initReports(H);

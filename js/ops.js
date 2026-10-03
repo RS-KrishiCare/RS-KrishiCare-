@@ -1,7 +1,7 @@
 // Operations: Purchases, Retailer Sales, Invoices, Payments & Receivables.
 // All accounting truth (stock, WAC, COGS, dues, balances) is computed by the database RPCs.
 export function initOps(h) {
-  const { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, opts, chk, confirmReason, fsec } = h;
+  const { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, opts, chk, confirmReason, fsec, setSel } = h;
   const numIn = (cls, label, val = 0) => `<label>${label}<input class="${cls}" type="number" step="any" min="0" inputmode="decimal" value="${val}"></label>`;
   const fld = (name, label, val = 0, extra = '') => `<label>${label}<input name="${name}" type="number" step="any" min="0" inputmode="decimal" value="${val}" ${extra}></label>`;
 
@@ -24,7 +24,7 @@ export function initOps(h) {
     if (canCreate) {
       form = (!activeSup.length || !prod.length)
         ? `<div class="hint">Before recording a purchase, add at least one <b>supplier</b> and one <b>product</b>.</div>`
-        : `<div class="box stack"><h3 style="margin:0 0 4px">New purchase</h3>
+        : `<div class="box stack"><h3 style="margin:0 0 4px" id="ptitle">New purchase</h3><div id="pebar"></div>
         <form id="pf">
           ${fsec(1, 'Supplier & date', `<label>Supplier<select name="supplier_id" class="ss" required><option value="">— Select supplier —</option>${opts(activeSup)}</select></label>
             <div class="row2"><label>Purchase date<input name="purchase_date" type="date" value="${today()}" required></label><label>Reference<input name="reference"></label></div>`)}
@@ -48,7 +48,7 @@ export function initOps(h) {
     ${form}${dueHtml}
     <h3 class="sec">Recent purchases</h3>${pur.length
         ? `<div class="tablewrap"><table><thead><tr><th>No.</th><th>Date</th><th>Supplier</th><th>Product total</th><th>Landed total</th><th></th></tr></thead><tbody>${pur.map(p =>
-          `<tr><td>${esc(p.purchase_no)}</td><td>${esc(p.purchase_date)}</td><td>${esc(p.suppliers?.name || '')}</td><td>${money(p.product_total)}</td><td>${money(p.landed_total)}</td><td><button class="btn sm ghost" data-det="${p.id}">Details</button>${has('owner') ? ` <button class="btn sm ghost" data-void="${p.id}">Cancel</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`
+          `<tr><td>${esc(p.purchase_no)}</td><td>${esc(p.purchase_date)}</td><td>${esc(p.suppliers?.name || '')}</td><td>${money(p.product_total)}</td><td>${money(p.landed_total)}</td><td style="white-space:normal;min-width:170px">${canCreate ? `<button class="btn sm" data-edit="${p.id}">Edit</button> ` : ''}<button class="btn sm ghost" data-det="${p.id}">Details</button>${has('owner') ? ` <button class="btn sm ghost" data-void="${p.id}">Cancel</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`
         : '<p class="empty">No purchases recorded yet.</p>'}`;
 
     el.querySelectorAll('[data-pay]').forEach(b => b.onclick = () => {
@@ -112,6 +112,34 @@ export function initOps(h) {
       if (e.target.classList.contains('pid')) e.target.closest('.ln').querySelector('.c').dataset.auto = '1';
     });
     pf.addEventListener('input', calc); calc();
+    let editing = null;
+    const startEditPurchase = async id => {
+      try {
+        const { data: d, error } = await sb.rpc('get_purchase_for_edit', { p_purchase: id }); if (error) throw error;
+        editing = id;
+        setSel(pf.elements.supplier_id, d.supplier_id);
+        pf.elements.purchase_date.value = d.purchase_date; pf.elements.reference.value = d.reference || '';
+        ['transport_cost', 'loading_cost', 'van_cost', 'other_cost'].forEach(k => pf.elements[k].value = N(d[k]));
+        pf.elements.paid_amount.value = N(d.paid); pf.elements.account_id.value = d.account_id || '';
+        pf.elements.notes.value = d.notes || '';
+        box.innerHTML = '';
+        d.items.forEach(it => {
+          box.insertAdjacentHTML('beforeend', lineHtml());
+          const r = box.lastElementChild;
+          setSel(r.querySelector('select.pid'), it.product_id);
+          r.querySelector('.q').value = N(it.qty); r.querySelector('.p').value = N(it.unit_price);
+          const u = upcOf(it.product_id), c = r.querySelector('.c');
+          c.value = N(it.cartons); c.dataset.auto = (u > 0 && Math.abs(Math.round(N(it.qty) / u * 1000) / 1000 - N(it.cartons)) < 0.0005) ? '1' : '0';
+        });
+        $('#ptitle', el).textContent = 'Edit purchase ' + d.purchase_no;
+        $('#pebar', el).innerHTML = `<div class="hint"><b>Editing ${esc(d.purchase_no)}.</b> Changing the supplier, date, reference, notes or payment is always possible. Changing products, quantities, prices or inbound costs is only possible while the stock from this purchase is still on hand. <button type="button" class="link" id="pcancel">Cancel editing</button></div>`;
+        $('#pcancel', el).onclick = () => viewPurchases(el);
+        pf.querySelector('.go').textContent = 'Save changes';
+        calc(); pf.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (err) { editing = null; toast(errMsg(err), 'err'); }
+    };
+    el.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => startEditPurchase(b.dataset.edit));
+
     pf.onsubmit = async e => {
       e.preventDefault(); const b = pf.querySelector('.go'); b.disabled = true;
       try {
@@ -119,8 +147,9 @@ export function initOps(h) {
         const items = [...box.querySelectorAll('.ln')].map(r => ({ product_id: r.querySelector('.pid').value, qty: N(r.querySelector('.q').value), unit_price: N(r.querySelector('.p').value), cartons: N(r.querySelector('.c').value) }));
         if (items.some(i => !i.product_id)) throw new Error('Select a product for every line (or remove the empty line).');
         const p = { supplier_id: fd.get('supplier_id'), purchase_date: fd.get('purchase_date'), reference: fd.get('reference'), transport_cost: N(fd.get('transport_cost')), loading_cost: N(fd.get('loading_cost')), van_cost: N(fd.get('van_cost')), other_cost: N(fd.get('other_cost')), paid_amount: N(fd.get('paid_amount')), account_id: fd.get('account_id') || '', notes: fd.get('notes'), items };
-        const { error } = await sb.rpc('create_purchase', { p }); if (error) throw error;
-        toast('Purchase saved. Stock has been updated.'); await viewPurchases(el);
+        const { error } = editing ? await sb.rpc('update_purchase', { p_purchase: editing, p }) : await sb.rpc('create_purchase', { p });
+        if (error) throw error;
+        toast(editing ? 'Purchase updated.' : 'Purchase saved. Stock has been updated.'); await viewPurchases(el);
       } catch (err) { toast(errMsg(err), 'err'); b.disabled = false; }
     };
   }
@@ -141,7 +170,7 @@ export function initOps(h) {
 
     const form = (!activeRet.length || !prod.length)
       ? `<div class="hint">Before recording a sale, add a <b>retailer</b> and a <b>product</b>, and receive stock through a purchase.</div>`
-      : `<div class="box stack"><h3 style="margin:0 0 4px">New retailer sale</h3><form id="sf">
+      : `<div class="box stack"><h3 style="margin:0 0 4px" id="stitle">New retailer sale</h3><div id="sebar"></div><form id="sf">
         ${fsec(1, 'Customer & order', `<label>Retailer<select name="retailer_id" class="ss" required><option value="">— Select retailer —</option>${opts(activeRet)}</select></label>
           <div class="row2"><label>Sale date<input name="sale_date" type="date" value="${today()}" required></label><label>Order reference<input name="order_ref"></label></div>
           <label>Delivery address <small>(optional — defaults to the retailer’s address)</small><input name="delivery_address"></label>`)}
@@ -155,8 +184,8 @@ export function initOps(h) {
 
     el.innerHTML = `<div class="bar"><h2>Retailer Sales</h2></div>${form}
     <h3 class="sec">Recent sales</h3>${sales.length
-        ? `<div class="tablewrap"><table><thead><tr><th>Invoice</th><th>Date</th><th>Retailer</th><th>Total</th><th>Paid</th><th>Due</th><th></th></tr></thead><tbody>${sales.map(s =>
-          `<tr><td>${esc(s.invoice_no)}</td><td>${esc(s.sale_date)}</td><td>${esc(rname[s.retailer_id] || '')}</td><td>${money(s.total)}</td><td>${money(s.paid)}</td><td><b>${money(s.due)}</b></td><td><button class="btn sm ghost" data-inv="${s.id}">Invoice</button>${has('owner') ? ` <button class="btn sm ghost" data-void="${s.id}">Cancel</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`
+        ? `<div class="tablewrap"><table><thead><tr><th>Invoice</th><th>Date</th><th>Retailer</th><th>Total</th><th>Paid</th><th>Due</th><th>Delivery cost</th><th></th></tr></thead><tbody>${sales.map(s =>
+          `<tr><td>${esc(s.invoice_no)}</td><td>${esc(s.sale_date)}</td><td>${esc(rname[s.retailer_id] || '')}</td><td>${money(s.total)}</td><td>${money(s.paid)}</td><td><b>${money(s.due)}</b></td><td>${s.delivery_cost === null || s.delivery_cost === undefined ? '—' : money(s.delivery_cost)}</td><td style="white-space:normal;min-width:190px">${has('owner', 'partner') ? `<button class="btn sm" data-edit="${s.id}">Edit</button> ` : ''}<button class="btn sm ghost" data-inv="${s.id}">Invoice</button>${has('owner') ? ` <button class="btn sm ghost" data-void="${s.id}">Cancel</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`
         : '<p class="empty">No sales recorded yet.</p>'}`;
     el.querySelectorAll('[data-inv]').forEach(b => b.onclick = () => openInvoice(b.dataset.inv).catch(e => toast(errMsg(e), 'err')));
     el.querySelectorAll('[data-void]').forEach(b => b.onclick = () => {
@@ -167,7 +196,7 @@ export function initOps(h) {
 
     const sf = $('#sf', el); if (!sf) return;
     const box = $('#lines', el);
-    let rp = {};
+    let rp = {}, own = {};
     const priceFor = pid => rp[pid] ?? pmap[pid]?.sell_price ?? 0;
     const lineHtml = () => `<div class="ln"><label>Product<select class="pid ss"><option value="">— Select product —</option>${prod.map(p => `<option value="${p.id}">${esc(p.name)} — in stock ${num(p.qty_on_hand)} ${esc(p.unit)}</option>`).join('')}</select></label>
       <div class="row2">${numIn('q', 'Quantity', 1)}<label>Unit price<input class="p" data-auto="1" type="number" step="any" min="0" inputmode="decimal" value="${priceFor('')}"></label></div>
@@ -177,7 +206,7 @@ export function initOps(h) {
       const ls = [...box.querySelectorAll('.ln')].map(r => ({ pid: r.querySelector('.pid').value, q: N(r.querySelector('.q').value), p: N(r.querySelector('.p').value), ld: N(r.querySelector('.ld').value) }));
       const sub = ls.reduce((s, l) => s + l.q * l.p - l.ld, 0);
       const total = sub - N(sf.elements.discount.value) + N(sf.elements.delivery_charge.value), paid = N(sf.elements.paid_amount.value);
-      const over = ls.filter(l => l.pid && l.q > N(pmap[l.pid]?.qty_on_hand)).map(l => pmap[l.pid]?.name);
+      const over = ls.filter(l => l.pid && l.q > N(pmap[l.pid]?.qty_on_hand) + N(own[l.pid])).map(l => pmap[l.pid]?.name);
       $('#prev', el).innerHTML = `<div class="sum">${over.length ? `<div class="err"><span>⚠ Insufficient stock: ${esc(over.join(', '))}</span></div>` : ''}
       <div><span>Subtotal</span><span>${money(sub)}</span></div><div><span>Total payable</span><b>${money(total)}</b></div>
       <div><span>Balance due after this sale</span><span>${money(Math.max(0, total - paid))}</span></div></div>`;
@@ -197,6 +226,38 @@ export function initOps(h) {
     };
     sf.elements.retailer_id.addEventListener('change', loadPrices); await loadPrices();
 
+    let editing = null;
+    const startEditSale = async id => {
+      try {
+        const { data: d, error } = await sb.rpc('get_sale_for_edit', { p_sale: id }); if (error) throw error;
+        editing = { id, retailer_id: d.retailer_id };
+        setSel(sf.elements.retailer_id, d.retailer_id); await loadPrices();
+        sf.elements.sale_date.value = d.sale_date; sf.elements.order_ref.value = d.order_ref || '';
+        sf.elements.delivery_address.value = d.delivery_address || '';
+        sf.elements.discount.value = N(d.discount); sf.elements.delivery_charge.value = N(d.delivery_charge);
+        sf.elements.retailer_delivery_cost.value = N(d.delivery_cost); sf.elements.delivery_account_id.value = d.delivery_account_id || '';
+        sf.elements.notes.value = d.notes || '';
+        own = {}; d.items.forEach(it => { own[it.product_id] = N(own[it.product_id]) + N(it.qty); });
+        box.innerHTML = '';
+        d.items.forEach(it => {
+          box.insertAdjacentHTML('beforeend', lineHtml());
+          const r = box.lastElementChild;
+          setSel(r.querySelector('select.pid'), it.product_id);
+          r.querySelector('.q').value = N(it.qty); const pr = r.querySelector('.p'); pr.value = N(it.unit_price); pr.dataset.auto = '0';
+          r.querySelector('.ld').value = N(it.line_discount);
+        });
+        // Payments are managed on the Payments & Receivables page, so they are shown but locked here.
+        sf.elements.paid_amount.value = N(d.paid); sf.elements.paid_amount.disabled = true; sf.elements.account_id.disabled = true;
+        if (N(d.paid) > 0) { sf.elements.retailer_id.disabled = true; setSel(sf.elements.retailer_id, d.retailer_id); }
+        $('#stitle', el).textContent = 'Edit sale ' + d.invoice_no;
+        $('#sebar', el).innerHTML = `<div class="hint"><b>Editing ${esc(d.invoice_no)}.</b> Stock, cost of goods and the delivery expense are corrected automatically and the invoice number stays the same. Payments already received (${money(d.paid)}) are not changed here — use Payments &amp; Receivables to add or reverse a payment.${N(d.paid) > 0 ? ' The retailer cannot be changed while payments exist.' : ''} <button type="button" class="link" id="scancel">Cancel editing</button></div>`;
+        $('#scancel', el).onclick = () => viewSales(el);
+        sf.querySelector('.go').textContent = 'Save changes';
+        calc(); sf.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (err) { editing = null; toast(errMsg(err), 'err'); }
+    };
+    el.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => startEditSale(b.dataset.edit));
+
     sf.onsubmit = async e => {
       e.preventDefault(); const b = sf.querySelector('.go'); b.disabled = true;
       try {
@@ -204,6 +265,11 @@ export function initOps(h) {
         const items = [...box.querySelectorAll('.ln')].map(r => ({ product_id: r.querySelector('.pid').value, qty: N(r.querySelector('.q').value), unit_price: N(r.querySelector('.p').value), line_discount: N(r.querySelector('.ld').value) }));
         if (items.some(i => !i.product_id)) throw new Error('Select a product for every line (or remove the empty line).');
         const p = { retailer_id: fd.get('retailer_id'), sale_date: fd.get('sale_date'), order_ref: fd.get('order_ref'), delivery_address: fd.get('delivery_address'), discount: N(fd.get('discount')), delivery_charge: N(fd.get('delivery_charge')), retailer_delivery_cost: N(fd.get('retailer_delivery_cost')), delivery_account_id: fd.get('delivery_account_id') || '', paid_amount: N(fd.get('paid_amount')), account_id: fd.get('account_id') || '', notes: fd.get('notes'), items };
+        if (editing) {
+          if (!p.retailer_id) p.retailer_id = editing.retailer_id;
+          const { error } = await sb.rpc('update_sale', { p_sale: editing.id, p }); if (error) throw error;
+          toast('Sale updated.'); await viewSales(el); return;
+        }
         const { data: id, error } = await sb.rpc('create_sale', { p }); if (error) throw error;
         toast('Sale saved.'); await openInvoice(id); await viewSales(el);
       } catch (err) { toast(errMsg(err), 'err'); b.disabled = false; }

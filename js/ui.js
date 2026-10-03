@@ -1,5 +1,12 @@
 // Global form behaviour: select-all on focus for numbers, no accidental mouse-wheel changes,
 // and searchable dropdowns (any <select class="ss">, including ones added later).
+let enhanceFn = null;
+export function setSelect(sel, value) {
+  if (enhanceFn && sel.classList.contains('ss') && !sel.dataset.ss) enhanceFn(sel);   // not enhanced yet (just inserted)
+  sel.value = value;
+  sel.dispatchEvent(new Event('ss:sync'));
+}
+
 export function initUI() {
   /* ---- number inputs ---- */
   let justFocused = null;
@@ -82,9 +89,11 @@ export function initUI() {
       const d = e.target.closest('.ss-opt'); if (d) choose(items[Number(d.dataset.i)]);
     });
     sel.addEventListener('invalid', () => { inp.classList.add('ss-bad'); inp.focus(); });
+    sel.addEventListener('ss:sync', () => { inp.value = shown(); inp.disabled = sel.disabled; });
     document.addEventListener('mousedown', e => { if (!wrap.contains(e.target)) close(); });
   }
 
+  enhanceFn = enhance;
   const scan = root => { if (root.matches?.('select.ss')) enhance(root); root.querySelectorAll?.('select.ss').forEach(enhance); };
   new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => { if (n.nodeType === 1) scan(n); }))).observe(document.body, { childList: true, subtree: true });
   scan(document.body);
