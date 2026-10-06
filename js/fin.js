@@ -159,15 +159,26 @@ export function initFin(h, ops) {
   }
 
   /* ================= FINANCE & ACCOUNTS ================= */
-  async function viewFinance(el) {
+  async function viewFinance(el, editId = null) {
     const rs = await Promise.all([
       sb.from('v_account_balances').select('*').order('name'),
       sb.from('v_dashboard').select('retailer_due,supplier_due,courier_advance_pending,fb_cod_pending').maybeSingle(),
-      sb.from('account_transactions').select('id,txn_date,direction,amount,kind,description,financial_accounts(name)').order('txn_date', { ascending: false }).order('created_at', { ascending: false }).limit(100)
+      sb.from('account_transactions').select('id,txn_date,direction,amount,kind,description,financial_accounts(name)').order('txn_date', { ascending: false }).order('created_at', { ascending: false }).limit(100),
+      sb.from('account_transfers').select('*').order('transfer_date', { ascending: false }).order('created_at', { ascending: false }).limit(50)
     ]);
     chk(rs);
-    const [bal, d, tx] = [rs[0].data, rs[1].data || {}, rs[2].data];
+    const [bal, d, tx, trs] = [rs[0].data, rs[1].data || {}, rs[2].data, rs[3].data];
     const canMove = has('owner', 'accountant');
+    const nm = Object.fromEntries(bal.map(a => [a.account_id, a.name]));
+    const bo = Object.fromEntries(bal.map(a => [a.account_id, N(a.balance)]));
+    const ed = editId ? trs.find(t => t.id === editId) : null;
+    // Money that can leave an account. While editing, the transfer being edited is first "taken back".
+    const avail = id => (bo[id] || 0) + (ed && id === ed.from_account ? N(ed.amount) : 0) - (ed && id === ed.to_account ? N(ed.amount) : 0);
+    const fromOpts = bal.map(a => { const v = avail(a.account_id); return `<option value="${a.account_id}" ${v <= 0 ? 'disabled' : ''} ${ed && ed.from_account === a.account_id ? 'selected' : ''}>${esc(a.name)} — ${money(v)}${v <= 0 ? ' (no balance)' : ''}</option>`; }).join('');
+    const toOpts = bal.map(a => `<option value="${a.account_id}" ${ed && ed.to_account === a.account_id ? 'selected' : ''}>${esc(a.name)}</option>`).join('');
+    const trRows = trs.map(t => `<tr>${canMove ? `<td style="white-space:nowrap"><button class="btn sm ghost" data-te="${t.id}">Edit</button> <button class="btn sm ghost" data-td="${t.id}">Delete</button></td>` : ''}
+      <td>${esc(t.transfer_date)}</td><td>${esc(nm[t.from_account] || '')}</td><td>${esc(nm[t.to_account] || '')}</td><td><b>${money(t.amount)}</b></td><td>${esc(t.note || '')}</td></tr>`);
+
     el.innerHTML = `<div class="bar"><h2>Finance & Accounts</h2></div>
     <h3 class="sec">Account balances</h3><div class="grid">${bal.map(a => `<div class="card ${Number(a.balance) < 0 ? 'neg' : ''}"><div class="l">${esc(a.name)}</div><div class="v">${money(a.balance)}</div></div>`).join('')}</div>
     <h3 class="sec">Receivables and payables</h3><div class="grid">
@@ -175,21 +186,49 @@ export function initFin(h, ops) {
       <div class="card"><div class="l">Supplier payable</div><div class="v">${money(d.supplier_due)}</div></div>
       <div class="card"><div class="l">Facebook COD pending</div><div class="v">${money(d.fb_cod_pending)}</div></div>
       <div class="card"><div class="l">Courier advance pending</div><div class="v">${money(d.courier_advance_pending)}</div></div></div>
-    ${canMove ? `<div class="box"><h3 style="margin:0 0 6px">Transfer between accounts</h3><p class="mut">A transfer only moves money between your own accounts. It is never income or expense.</p><form id="tf">
-      <div class="row2"><label>From<select name="from">${opts(bal.map(a => ({ id: a.account_id, name: a.name })))}</select></label>
-      <label>To<select name="to">${opts(bal.map(a => ({ id: a.account_id, name: a.name })).reverse())}</select></label></div>
-      <div class="row2">${fld('amount', 'Amount', 0, 'required')}<label>Date<input name="date" type="date" value="${today()}"></label></div>
-      <label>Note<input name="note"></label><button class="btn go" style="width:100%">Transfer</button></form></div>` : ''}
+    ${canMove ? `<div class="box"><h3 id="ttitle" style="margin:0 0 6px">${ed ? 'Edit transfer' : 'Transfer between accounts'}</h3>
+      <p class="mut">A transfer only moves money between your own accounts. It is never income or expense. You cannot transfer more than the source account holds, and an account with no balance cannot be a source.</p>
+      ${ed ? `<div class="hint"><b>Editing a transfer of ${money(ed.amount)}.</b> <button type="button" class="link" id="tcancel">Cancel editing</button></div>` : ''}
+      <form id="tf">
+      <div class="row2"><label>From<select name="from" required><option value="">— Select account —</option>${fromOpts}</select></label>
+      <label>To<select name="to" required><option value="">— Select account —</option>${toOpts}</select></label></div>
+      <div class="row2">${fld('amount', 'Amount', ed ? ed.amount : 0, 'required')}<label>Date<input name="date" type="date" value="${ed ? ed.transfer_date : today()}"></label></div>
+      <label>Note<input name="note" value="${esc(ed ? (ed.note || '') : '')}"></label>
+      <div id="tmsg" class="sum"></div>
+      <button class="btn go" style="width:100%">${ed ? 'Save changes' : 'Transfer'}</button></form></div>` : ''}
+    <h3 class="sec">Transfers between accounts</h3>
+    ${table([...(canMove ? ['Actions'] : []), 'Date', 'From', 'To', 'Amount', 'Note'], trRows, 'No transfers recorded yet.')}
     <h3 class="sec">Recent transactions</h3>
     ${table(['Date', 'Account', 'Type', 'In', 'Out', 'Details'], tx.map(t => `<tr><td>${esc(t.txn_date)}</td><td>${esc(t.financial_accounts?.name || '')}</td><td>${esc(label(t.kind))}</td><td>${t.direction === 'in' ? money(t.amount) : ''}</td><td>${t.direction === 'out' ? money(t.amount) : ''}</td><td>${esc(t.description || '')}</td></tr>`), 'No transactions yet.')}`;
+
+    el.querySelectorAll('[data-te]').forEach(b => b.onclick = async () => { await viewFinance(el, b.dataset.te); window.scrollTo({ top: 0, behavior: 'smooth' }); });
+    el.querySelectorAll('[data-td]').forEach(b => b.onclick = () => {
+      const t = trs.find(x => x.id === b.dataset.td);
+      confirmReason('Delete transfer', `Delete the transfer of ${money(t.amount)} from ${esc(nm[t.from_account] || '')} to ${esc(nm[t.to_account] || '')}? Both account balances go back as if it never happened. This is refused if the received money has already been spent.`,
+        r => sb.rpc('delete_transfer', { p_transfer: t.id, p_reason: r }), () => viewFinance(el));
+    });
+
     const f = $('#tf', el); if (!f) return;
+    if (ed) $('#tcancel', el).onclick = () => viewFinance(el);
+    const go = f.querySelector('.go');
+    const check = () => {
+      const from = f.elements.from.value, to = f.elements.to.value, amt = N(f.elements.amount.value);
+      let msg = 'Choose the source account.', bad = !from;
+      if (from && to && from === to) { msg = '<span class="err">Choose two different accounts.</span>'; bad = true; }
+      else if (from && amt > avail(from) + 1e-9) { msg = `<span class="err">Not enough money in ${esc(nm[from])}. Available: ${money(avail(from))}.</span>`; bad = true; }
+      else if (from) msg = `Available in ${esc(nm[from])}: <b>${money(avail(from))}</b>${amt > 0 ? ` · after transfer: ${money(avail(from) - amt)}` : ''}`;
+      $('#tmsg', el).innerHTML = `<div><span>${msg}</span></div>`;
+      go.disabled = bad || !to || !(amt > 0);
+    };
+    f.addEventListener('input', check); f.addEventListener('change', check); check();
     f.onsubmit = async e => {
-      e.preventDefault(); const b = f.querySelector('.go'); b.disabled = true;
+      e.preventDefault(); go.disabled = true;
       try {
         const fd = new FormData(f);
-        const { error } = await sb.rpc('transfer_funds', { p_from: fd.get('from'), p_to: fd.get('to'), p_amount: N(fd.get('amount')), p_date: fd.get('date'), p_note: fd.get('note') || null });
-        if (error) throw error; toast('Transfer recorded.'); await viewFinance(el);
-      } catch (err) { toast(errMsg(err), 'err'); b.disabled = false; }
+        const args = { p_from: fd.get('from'), p_to: fd.get('to'), p_amount: N(fd.get('amount')), p_date: fd.get('date'), p_note: fd.get('note') || null };
+        const { error } = ed ? await sb.rpc('update_transfer', { p_transfer: ed.id, ...args }) : await sb.rpc('transfer_funds', args);
+        if (error) throw error; toast(ed ? 'Transfer updated.' : 'Transfer recorded.'); await viewFinance(el);
+      } catch (err) { toast(errMsg(err), 'err'); check(); }
     };
   }
 
