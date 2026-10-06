@@ -3,6 +3,7 @@ import { initOps } from './ops.js';
 import { initFin } from './fin.js';
 import { initReports } from './reports.js';
 import { initDash } from './dash.js';
+import { initEst } from './est.js';
 import { ic } from './icons.js';
 import { initUI, setSelect } from './ui.js';
 
@@ -214,9 +215,11 @@ const confirmReason = (title, intro, fn, after) => modal(title, `<p>${intro}</p>
   toast('Completed successfully.'); await after();
 }, 'Confirm');
 const fsec = (n, title, body, hint = '') => `<div class="fsec"><div class="fsec-h"><span class="fsec-n">${n}</span><b>${title}</b>${hint ? `<small>${hint}</small>` : ''}</div><div class="fsec-b">${body}</div></div>`;
-const H = { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, field, readForm, listView, opts, chk, state, LOADING, confirmReason, fsec, setSel: setSelect };
+const carry = {};
+const H = { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, field, readForm, listView, opts, chk, state, LOADING, confirmReason, fsec, carry, setSel: setSelect };
 const ops = initOps(H);
 const fin = initFin(H, ops);
+const est = initEst(H, ops);
 const rep = initReports(H);
 const dash = initDash(H);
 
@@ -226,6 +229,7 @@ const FIN = ['owner', 'partner', 'accountant'];
 const NAV = [
   { id: 'dash', ic: 'layout', t: 'Dashboard', roles: ALL, fn: viewDash },
   { id: 'sales', ic: 'bag', t: 'Retailer Sales', roles: ['owner', 'partner', 'salesman'], fn: ops.viewSales },
+  { id: 'estimates', ic: 'file', t: 'Estimates', roles: ['owner', 'partner', 'salesman'], fn: est.viewEstimates },
   { id: 'facebook', ic: 'message', t: 'Facebook Orders', roles: ALL, fn: fin.viewFacebook },
   { id: 'payments', ic: 'card', t: 'Payments & Receivables', roles: ['owner', 'partner', 'accountant', 'salesman'], fn: ops.viewPayments },
   { id: 'purchases', ic: 'truck', t: 'Purchases', roles: ['owner', 'partner', 'accountant', 'warehouse'], fn: ops.viewPurchases },
