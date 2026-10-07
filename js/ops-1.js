@@ -4,19 +4,31 @@ export function initOps(h) {
   const { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, opts, chk, confirmReason, fsec, carry, setSel } = h;
   const numIn = (cls, label, val = 0) => `<label>${label}<input class="${cls}" type="number" step="any" min="0" inputmode="decimal" value="${val}"></label>`;
   const fld = (name, label, val = 0, extra = '') => `<label>${label}<input name="${name}" type="number" step="any" min="0" inputmode="decimal" value="${val}" ${extra}></label>`;
+  // Category filter shown before the product selector in purchase and sale lines.
+  const catSelect = cats => `<label>Category<select class="pcat ss"><option value="">All categories</option>${cats.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}<option value="__none">No category</option></select></label>`;
+  const inCat = (p, cat) => !cat || (cat === '__none' ? !p.category_id : p.category_id === cat);
+  const refillProducts = (row, prod, optHtml) => {
+    const cat = row.querySelector('.pcat').value, sel = row.querySelector('select.pid'), cur = sel.value;
+    const list = prod.filter(p => inCat(p, cat));
+    sel.innerHTML = '<option value="">— Select product —</option>' + list.map(optHtml).join('');
+    sel.value = list.some(p => p.id === cur) ? cur : '';
+    h.setSel(sel, sel.value);
+    if (sel.value !== cur) { sel.dispatchEvent(new Event('input', { bubbles: true })); sel.dispatchEvent(new Event('change', { bubbles: true })); }   // product was cleared by the filter
+  };
 
   /* ================= PURCHASES ================= */
   async function viewPurchases(el) {
     const canCreate = has('owner', 'partner', 'warehouse'), canPay = has('owner', 'accountant'), seeDue = has('owner', 'partner', 'accountant');
     const rs = await Promise.all([
       sb.from('suppliers').select('id,name,is_active').order('name'),
-      sb.from('products').select('id,name,unit,units_per_carton').eq('is_active', true).order('name'),
+      sb.from('products').select('id,name,unit,units_per_carton,category_id').eq('is_active', true).order('name'),
       sb.from('v_payment_methods').select('id,name').order('name'),
       sb.from('purchases').select('id,purchase_no,purchase_date,product_total,landed_total,suppliers(name)').order('purchase_date', { ascending: false }).limit(50),
-      seeDue ? sb.from('v_supplier_due').select('*').gt('due', 0).order('purchase_date') : Promise.resolve({ data: [] })
+      seeDue ? sb.from('v_supplier_due').select('*').gt('due', 0).order('purchase_date') : Promise.resolve({ data: [] }),
+      sb.from('categories').select('id,name').eq('is_active', true).order('name')
     ]);
     chk(rs);
-    const [sup, prod, acc, pur, due] = rs.map(r => r.data);
+    const [sup, prod, acc, pur, due, cats] = rs.map(r => r.data);
     const sname = Object.fromEntries(sup.map(s => [s.id, s.name]));
     const activeSup = sup.filter(s => s.is_active);
 
@@ -81,7 +93,8 @@ export function initOps(h) {
     const pf = $('#pf', el); if (!pf) return;
     const box = $('#lines', el);
     const upcOf = pid => N(prod.find(x => x.id === pid)?.units_per_carton);
-    const lineHtml = () => `<div class="ln"><label>Product<select class="pid ss ss-hl"><option value="">— Select product —</option>${prod.map(p => `<option value="${p.id}">${esc(p.name)} (${esc(p.unit)})${p.units_per_carton ? ' · ' + num(p.units_per_carton) + ' per carton' : ''}</option>`).join('')}</select></label>
+    const purOpt = p => `<option value="${p.id}">${esc(p.name)} (${esc(p.unit)})${p.units_per_carton ? ' · ' + num(p.units_per_carton) + ' per carton' : ''}</option>`;
+    const lineHtml = () => `<div class="ln">${catSelect(cats)}<label>Product<select class="pid ss ss-hl"><option value="">— Select product —</option>${prod.map(purOpt).join('')}</select></label>
       <div class="row2">${numIn('q', 'Quantity (pieces)', 1)}${numIn('p', 'Unit purchase price', 0)}</div>
       <div class="row2"><label>Cartons <small>(automatic)</small><input class="c" data-auto="1" type="number" step="any" min="0" inputmode="decimal" value="0"></label><button type="button" class="btn ghost sm rm" style="align-self:end;margin-bottom:10px">✕ Remove</button></div></div>`;
     const autoCartons = () => box.querySelectorAll('.ln').forEach(r => {
@@ -107,6 +120,7 @@ export function initOps(h) {
     box.insertAdjacentHTML('beforeend', lineHtml());
     $('#addln', el).onclick = () => { box.insertAdjacentHTML('beforeend', lineHtml()); calc(); };
     box.addEventListener('click', e => { if (e.target.classList.contains('rm') && box.children.length > 1) { e.target.closest('.ln').remove(); calc(); } });
+    box.addEventListener('change', e => { if (e.target.classList.contains('pcat')) { refillProducts(e.target.closest('.ln'), prod, purOpt); calc(); } });
     box.addEventListener('input', e => {
       if (e.target.classList.contains('c')) e.target.dataset.auto = '0';
       if (e.target.classList.contains('pid')) e.target.closest('.ln').querySelector('.c').dataset.auto = '1';
@@ -160,10 +174,11 @@ export function initOps(h) {
       sb.from('retailers').select('id,name,address,is_active').order('name'),
       sb.from('v_products_sales').select('*').order('name'),
       sb.from('v_payment_methods').select('id,name').order('name'),
-      sb.from('v_my_sales').select('*').order('sale_date', { ascending: false }).limit(50)
+      sb.from('v_my_sales').select('*').order('sale_date', { ascending: false }).limit(50),
+      sb.from('categories').select('id,name').eq('is_active', true).order('name')
     ]);
     chk(rs);
-    const [ret, prod, acc, sales] = rs.map(r => r.data);
+    const [ret, prod, acc, sales, cats] = rs.map(r => r.data);
     const rname = Object.fromEntries(ret.map(r => [r.id, r.name]));
     const activeRet = ret.filter(r => r.is_active);
     const pmap = Object.fromEntries(prod.map(p => [p.id, p]));
@@ -198,7 +213,8 @@ export function initOps(h) {
     const box = $('#lines', el);
     let rp = {}, own = {};
     const priceFor = pid => rp[pid] ?? pmap[pid]?.sell_price ?? 0;
-    const lineHtml = () => `<div class="ln"><label>Product<select class="pid ss ss-hl"><option value="">— Select product —</option>${prod.map(p => `<option value="${p.id}">${esc(p.name)} — in stock ${num(p.qty_on_hand)} ${esc(p.unit)}</option>`).join('')}</select></label>
+    const saleOpt = p => `<option value="${p.id}">${esc(p.name)} — in stock ${num(p.qty_on_hand)} ${esc(p.unit)}</option>`;
+    const lineHtml = () => `<div class="ln">${catSelect(cats)}<label>Product<select class="pid ss ss-hl"><option value="">— Select product —</option>${prod.map(saleOpt).join('')}</select></label>
       <div class="row2">${numIn('q', 'Quantity', 1)}<label>Unit price<input class="p" data-auto="1" type="number" step="any" min="0" inputmode="decimal" value="${priceFor('')}"></label></div>
       <div class="row2">${numIn('ld', 'Line discount', 0)}<button type="button" class="btn ghost sm rm" style="align-self:end;margin-bottom:10px">✕ Remove</button></div></div>`;
     const refreshPrices = () => box.querySelectorAll('.ln').forEach(r => { const p = r.querySelector('.p'); if (p.dataset.auto !== '0') p.value = priceFor(r.querySelector('.pid').value); });
@@ -214,6 +230,7 @@ export function initOps(h) {
     box.insertAdjacentHTML('beforeend', lineHtml());
     $('#addln', el).onclick = () => { box.insertAdjacentHTML('beforeend', lineHtml()); calc(); };
     box.addEventListener('click', e => { if (e.target.classList.contains('rm') && box.children.length > 1) { e.target.closest('.ln').remove(); calc(); } });
+    box.addEventListener('change', e => { if (e.target.classList.contains('pcat')) { refillProducts(e.target.closest('.ln'), prod, saleOpt); calc(); } });
     box.addEventListener('input', e => {
       if (e.target.classList.contains('p')) e.target.dataset.auto = '0';
       if (e.target.classList.contains('pid')) { const p = e.target.closest('.ln').querySelector('.p'); p.dataset.auto = '1'; p.value = priceFor(e.target.value); }

@@ -351,6 +351,13 @@ export function initFin(h, ops) {
         cols: [{ h: 'Name', f: x => `<b>${esc(x.name)}</b>` }, { h: 'Phone', f: x => esc(x.phone || '—') }, { h: 'Status', f: x => x.is_active ? 'Active' : 'Inactive' }],
         load: async () => { const { data, error } = await sb.from('couriers').select('*').order('name'); if (error) throw error; return data; }
       }),
+      productcats: () => listView($('#sec', el), {
+        title: 'Product categories', table: 'categories', canEdit: true, newTitle: 'New product category', editTitle: 'Edit product category', empty: 'No categories.', searchKeys: ['name'],
+        note: 'These appear in the product form and in the Category filter of purchases and sales. Deactivate a category instead of deleting it.',
+        fields: [{ key: 'name', label: 'Category name', req: true }, { key: 'is_active', label: 'Active', type: 'check' }],
+        cols: [{ h: 'Name', f: x => `<b>${esc(x.name)}</b>` }, { h: 'Status', f: x => x.is_active ? 'Active' : 'Inactive' }],
+        load: async () => { const { data, error } = await sb.from('categories').select('*').order('name'); if (error) throw error; return data; }
+      }),
       categories: () => listView($('#sec', el), {
         title: 'Expense categories', table: 'expense_categories', canEdit: true, newTitle: 'New category', editTitle: 'Edit category', empty: 'No categories.', searchKeys: ['name'],
         fields: [{ key: 'name', label: 'Category name', req: true }, { key: 'is_active', label: 'Active', type: 'check' }],
@@ -389,7 +396,7 @@ export function initFin(h, ops) {
         };
       }
     };
-    const T = [['business', 'Business info'], ['couriers', 'Couriers'], ['categories', 'Expense categories'], ['accounts', 'Payment accounts'], ['partners', 'Partners']];
+    const T = [['business', 'Business info'], ['couriers', 'Couriers'], ['productcats', 'Product categories'], ['categories', 'Expense categories'], ['accounts', 'Payment accounts'], ['partners', 'Partners']];
     el.innerHTML = `<div class="bar"><h2>Settings</h2></div><div class="btnrow">${T.map(([k, l]) => `<button class="btn ghost sm" data-s="${k}">${l}</button>`).join('')}</div><div id="sec">${LOADING}</div>`;
     const open = k => { el.querySelectorAll('[data-s]').forEach(b => b.classList.toggle('on', b.dataset.s === k)); SECTIONS[k](); };
     el.querySelectorAll('[data-s]').forEach(b => b.onclick = () => open(b.dataset.s));
