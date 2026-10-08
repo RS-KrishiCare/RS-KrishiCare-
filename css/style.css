@@ -262,3 +262,8 @@ header.top .brand-h img{border:2px solid #ffffffd9;box-shadow:0 0 0 1px #0000001
 .ss-hl .ss-in:hover{border-color:#6fb85c}
 .ss-hl .ss-in:focus{background-color:#fff;border:2px solid #2e7d32;box-shadow:0 0 0 4px #2e7d3233;outline:none}
 .ss-hl .ss-list{border:2px solid #2e7d32}
+
+/* automatic Category filter + document printing */
+label.catf{margin-bottom:2px}
+.ver{margin-top:6px;font-size:10.5px;color:#9aa89a}
+@media print{body.printing-doc>*:not(.modal){display:none!important}}
