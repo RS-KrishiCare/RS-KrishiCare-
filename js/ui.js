@@ -1,6 +1,19 @@
 // Global form behaviour: select-all on focus for numbers, no accidental mouse-wheel changes,
 // and searchable dropdowns (any <select class="ss">, including ones added later).
 let enhanceFn = null;
+
+// Product -> category lookup used by the automatic Category filter.
+const catData = { cats: [], map: {} };
+export async function refreshCatData(sb) {
+  try {
+    const [c, p] = await Promise.all([
+      sb.from('categories').select('id,name').eq('is_active', true).order('name'),
+      sb.from('v_products_sales').select('id,category_id')
+    ]);
+    if (!c.error) catData.cats = c.data || [];
+    if (!p.error) catData.map = Object.fromEntries((p.data || []).map(x => [x.id, x.category_id]));
+  } catch (_) { /* the filter simply shows "All categories" if this cannot load */ }
+}
 export function setSelect(sel, value) {
   if (enhanceFn && sel.classList.contains('ss') && !sel.dataset.ss) enhanceFn(sel);   // not enhanced yet (just inserted)
   sel.value = value;
@@ -96,6 +109,29 @@ export function initUI() {
 
   enhanceFn = enhance;
   const scan = root => { if (root.matches?.('select.ss')) enhance(root); root.querySelectorAll?.('select.ss').forEach(enhance); };
-  new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => { if (n.nodeType === 1) scan(n); }))).observe(document.body, { childList: true, subtree: true });
-  scan(document.body);
+  // ---- Category filter: wherever a product can be selected, a Category selector appears just before it ----
+  const PRODUCT_SELECT = 'select.pid, select[name=product], select#mvf';
+  const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  function applyCategory(sel, cat) {
+    if (!sel._all) sel._all = [...sel.options].map(o => o.cloneNode(true));
+    const cur = sel.value;
+    const keep = o => o.value === '' || !cat || (cat === '__none' ? !catData.map[o.value] : catData.map[o.value] === cat);
+    sel.innerHTML = '';
+    sel._all.filter(keep).forEach(o => sel.appendChild(o.cloneNode(true)));
+    sel.value = [...sel.options].some(o => o.value === cur) ? cur : '';
+    setSelect(sel, sel.value);
+    if (sel.value !== cur) { sel.dispatchEvent(new Event('input', { bubbles: true })); sel.dispatchEvent(new Event('change', { bubbles: true })); }   // filtered-out product was cleared
+  }
+  function addCategoryFilter(sel) {
+    if (sel.dataset.catf) return;
+    sel.dataset.catf = '1';
+    const label = sel.closest('label'); if (!label || !label.parentNode) return;
+    if (label.previousElementSibling?.classList.contains('catf')) return;
+    label.insertAdjacentHTML('beforebegin', `<label class="catf">Category<select class="pcat ss"><option value="">All categories</option>${catData.cats.map(c => `<option value="${esc(c.id)}">${esc(c.name)}</option>`).join('')}<option value="__none">No category</option></select></label>`);
+    const cs = label.previousElementSibling.querySelector('select');
+    cs.addEventListener('change', () => applyCategory(sel, cs.value));
+  }
+  const scanProducts = root => { if (root.matches?.(PRODUCT_SELECT)) addCategoryFilter(root); root.querySelectorAll?.(PRODUCT_SELECT).forEach(addCategoryFilter); };
+  new MutationObserver(ms => ms.forEach(m => m.addedNodes.forEach(n => { if (n.nodeType === 1) { scanProducts(n); scan(n); } }))).observe(document.body, { childList: true, subtree: true });
+  scanProducts(document.body); scan(document.body);
 }

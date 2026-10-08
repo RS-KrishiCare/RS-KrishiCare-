@@ -1,7 +1,9 @@
 // Operations: Purchases, Retailer Sales, Invoices, Payments & Receivables.
 // All accounting truth (stock, WAC, COGS, dues, balances) is computed by the database RPCs.
+import { makeShowInvoice } from './invoice.js';
+
 export function initOps(h) {
-  const { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, opts, chk, confirmReason, fsec, setSel } = h;
+  const { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, opts, chk, confirmReason, fsec, carry, setSel } = h;
   const numIn = (cls, label, val = 0) => `<label>${label}<input class="${cls}" type="number" step="any" min="0" inputmode="decimal" value="${val}"></label>`;
   const fld = (name, label, val = 0, extra = '') => `<label>${label}<input name="${name}" type="number" step="any" min="0" inputmode="decimal" value="${val}" ${extra}></label>`;
 
@@ -10,7 +12,7 @@ export function initOps(h) {
     const canCreate = has('owner', 'partner', 'warehouse'), canPay = has('owner', 'accountant'), seeDue = has('owner', 'partner', 'accountant');
     const rs = await Promise.all([
       sb.from('suppliers').select('id,name,is_active').order('name'),
-      sb.from('products').select('id,name,unit,units_per_carton').eq('is_active', true).order('name'),
+      sb.from('products').select('id,name,unit,units_per_carton,category_id').eq('is_active', true).order('name'),
       sb.from('v_payment_methods').select('id,name').order('name'),
       sb.from('purchases').select('id,purchase_no,purchase_date,product_total,landed_total,suppliers(name)').order('purchase_date', { ascending: false }).limit(50),
       seeDue ? sb.from('v_supplier_due').select('*').gt('due', 0).order('purchase_date') : Promise.resolve({ data: [] })
@@ -81,7 +83,8 @@ export function initOps(h) {
     const pf = $('#pf', el); if (!pf) return;
     const box = $('#lines', el);
     const upcOf = pid => N(prod.find(x => x.id === pid)?.units_per_carton);
-    const lineHtml = () => `<div class="ln"><label>Product<select class="pid ss ss-hl"><option value="">— Select product —</option>${prod.map(p => `<option value="${p.id}">${esc(p.name)} (${esc(p.unit)})${p.units_per_carton ? ' · ' + num(p.units_per_carton) + ' per carton' : ''}</option>`).join('')}</select></label>
+    const purOpt = p => `<option value="${p.id}">${esc(p.name)} (${esc(p.unit)})${p.units_per_carton ? ' · ' + num(p.units_per_carton) + ' per carton' : ''}</option>`;
+    const lineHtml = () => `<div class="ln"><label>Product<select class="pid ss ss-hl"><option value="">— Select product —</option>${prod.map(purOpt).join('')}</select></label>
       <div class="row2">${numIn('q', 'Quantity (pieces)', 1)}${numIn('p', 'Unit purchase price', 0)}</div>
       <div class="row2"><label>Cartons <small>(automatic)</small><input class="c" data-auto="1" type="number" step="any" min="0" inputmode="decimal" value="0"></label><button type="button" class="btn ghost sm rm" style="align-self:end;margin-bottom:10px">✕ Remove</button></div></div>`;
     const autoCartons = () => box.querySelectorAll('.ln').forEach(r => {
@@ -198,7 +201,8 @@ export function initOps(h) {
     const box = $('#lines', el);
     let rp = {}, own = {};
     const priceFor = pid => rp[pid] ?? pmap[pid]?.sell_price ?? 0;
-    const lineHtml = () => `<div class="ln"><label>Product<select class="pid ss ss-hl"><option value="">— Select product —</option>${prod.map(p => `<option value="${p.id}">${esc(p.name)} — in stock ${num(p.qty_on_hand)} ${esc(p.unit)}</option>`).join('')}</select></label>
+    const saleOpt = p => `<option value="${p.id}">${esc(p.name)} — in stock ${num(p.qty_on_hand)} ${esc(p.unit)}</option>`;
+    const lineHtml = () => `<div class="ln"><label>Product<select class="pid ss ss-hl"><option value="">— Select product —</option>${prod.map(saleOpt).join('')}</select></label>
       <div class="row2">${numIn('q', 'Quantity', 1)}<label>Unit price<input class="p" data-auto="1" type="number" step="any" min="0" inputmode="decimal" value="${priceFor('')}"></label></div>
       <div class="row2">${numIn('ld', 'Line discount', 0)}<button type="button" class="btn ghost sm rm" style="align-self:end;margin-bottom:10px">✕ Remove</button></div></div>`;
     const refreshPrices = () => box.querySelectorAll('.ln').forEach(r => { const p = r.querySelector('.p'); if (p.dataset.auto !== '0') p.value = priceFor(r.querySelector('.pid').value); });
@@ -226,7 +230,7 @@ export function initOps(h) {
     };
     sf.elements.retailer_id.addEventListener('change', loadPrices); await loadPrices();
 
-    let editing = null;
+    let editing = null, converting = null;
     const startEditSale = async id => {
       try {
         const { data: d, error } = await sb.rpc('get_sale_for_edit', { p_sale: id }); if (error) throw error;
@@ -258,6 +262,35 @@ export function initOps(h) {
     };
     el.querySelectorAll('[data-edit]').forEach(b => b.onclick = () => startEditSale(b.dataset.edit));
 
+    // Convert an estimate into a real sale: the estimate's details are pre-filled and everything can still be changed.
+    const startConvert = async c => {
+      try {
+        converting = { id: c.id };
+        if (c.retailer_id) { setSel(sf.elements.retailer_id, c.retailer_id); await loadPrices(); }
+        sf.elements.order_ref.value = c.reference || c.estimate_no;
+        sf.elements.delivery_address.value = c.address || '';
+        sf.elements.discount.value = N(c.discount); sf.elements.delivery_charge.value = N(c.delivery_charge);
+        sf.elements.notes.value = 'Converted from estimate ' + c.estimate_no;
+        box.innerHTML = '';
+        const skipped = [];
+        c.items.forEach(it => {
+          if (!pmap[it.product_id]) { skipped.push(it.product_name); return; }
+          box.insertAdjacentHTML('beforeend', lineHtml());
+          const r = box.lastElementChild;
+          setSel(r.querySelector('select.pid'), it.product_id);
+          r.querySelector('.q').value = N(it.qty); const pr = r.querySelector('.p'); pr.value = N(it.unit_price); pr.dataset.auto = '0';
+          r.querySelector('.ld').value = N(it.line_discount);
+        });
+        if (!box.children.length) box.insertAdjacentHTML('beforeend', lineHtml());
+        $('#stitle', el).textContent = 'New sale from estimate ' + c.estimate_no;
+        $('#sebar', el).innerHTML = `<div class="hint"><b>Converting estimate ${esc(c.estimate_no)}.</b> Add or remove products and change quantities, prices or charges as needed, then enter any payment and delivery cost. The sale enters your books only when you press the button below.${c.retailer_id ? '' : ' <b>Choose the retailer for this sale.</b>'}${skipped.length ? ` <b>Not available (inactive): ${esc(skipped.join(', '))}.</b>` : ''} <button type="button" class="link" id="scancel">Cancel</button></div>`;
+        $('#scancel', el).onclick = () => viewSales(el);
+        sf.querySelector('.go').textContent = 'Confirm sale and generate invoice';
+        calc(); sf.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      } catch (err) { converting = null; toast(errMsg(err), 'err'); }
+    };
+    if (carry.convert) { const c = carry.convert; carry.convert = null; await startConvert(c); }
+
     sf.onsubmit = async e => {
       e.preventDefault(); const b = sf.querySelector('.go'); b.disabled = true;
       try {
@@ -270,60 +303,17 @@ export function initOps(h) {
           const { error } = await sb.rpc('update_sale', { p_sale: editing.id, p }); if (error) throw error;
           toast('Sale updated.'); await viewSales(el); return;
         }
+        if (converting) {
+          const { data: sid, error } = await sb.rpc('convert_estimate', { p_estimate: converting.id, p }); if (error) throw error;
+          toast('Estimate converted to a sale.'); await openInvoice(sid); await viewSales(el); return;
+        }
         const { data: id, error } = await sb.rpc('create_sale', { p }); if (error) throw error;
         toast('Sale saved.'); await openInvoice(id); await viewSales(el);
       } catch (err) { toast(errMsg(err), 'err'); b.disabled = false; }
     };
   }
 
-  /* ================= INVOICE (shared by retailer sales and Facebook orders) ================= */
-  function words(n) {
-    n = Math.round(Number(n) || 0); if (!n) return 'Zero Taka Only';
-    const o = ['', 'One', 'Two', 'Three', 'Four', 'Five', 'Six', 'Seven', 'Eight', 'Nine', 'Ten', 'Eleven', 'Twelve', 'Thirteen', 'Fourteen', 'Fifteen', 'Sixteen', 'Seventeen', 'Eighteen', 'Nineteen'];
-    const t = ['', '', 'Twenty', 'Thirty', 'Forty', 'Fifty', 'Sixty', 'Seventy', 'Eighty', 'Ninety'];
-    const u100 = x => x < 20 ? o[x] : t[Math.floor(x / 10)] + (x % 10 ? ' ' + o[x % 10] : '');
-    const u1000 = x => (x >= 100 ? o[Math.floor(x / 100)] + ' Hundred' + (x % 100 ? ' ' : '') : '') + (x % 100 ? u100(x % 100) : '');
-    const parts = [];
-    if (n >= 1e7) { parts.push(u100(Math.floor(n / 1e7)) + ' Crore'); n %= 1e7; }
-    if (n >= 1e5) { parts.push(u100(Math.floor(n / 1e5)) + ' Lakh'); n %= 1e5; }
-    if (n >= 1e3) { parts.push(u100(Math.floor(n / 1e3)) + ' Thousand'); n %= 1e3; }
-    if (n) parts.push(u1000(n));
-    return 'Taka ' + parts.join(' ') + ' Only';
-  }
-  const dfmt = d => new Date(String(d).slice(0, 10) + 'T00:00:00').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });
-
-  async function showInvoice(inv) {
-    const { data: st } = await sb.from('settings').select('value').eq('key', 'business').maybeSingle();
-    const b = st?.value || {};
-    const rows = inv.items.map((i, n) => `<tr><td>${n + 1}</td><td>${esc(i.name)}</td><td>${num(i.qty)}</td><td>${num(i.unit_price)}</td><td>${num(i.line_total)}</td></tr>`).join('');
-    const blank = Array.from({ length: Math.max(0, 6 - inv.items.length) }, (_, k) => `<tr><td>${inv.items.length + k + 1}</td><td>&nbsp;</td><td></td><td></td><td></td></tr>`).join('');
-    const m = document.createElement('div'); m.className = 'modal inv';
-    m.innerHTML = `<div class="sheet"><div class="invoice-actions no-print">
-      <button class="btn" id="pr">🖨 Print / Save as PDF</button><button class="btn ghost" id="cl">Close</button></div>
-      <div class="invoice-paper" id="paper">
-      <div class="invoice-top"><div class="invoice-brand"><img src="assets/logo.jpg" alt="" onerror="this.style.display='none'"><div><h1>${esc(b.name || 'RS KrishiCare')}</h1><p>${esc(b.subtitle || 'Agricultural tools and supplies')}</p></div></div>
-        <div class="invoice-title">INVOICE<small>Customer copy</small></div></div>
-      <div class="invoice-bar"><span>${esc(b.founder || '')}</span><span>${esc(b.founder_title || '')}</span></div>
-      <div class="invoice-info">
-        <div><label>Address</label>${esc(b.address || '')}</div><div><label>Mobile</label>${esc(b.phone || '')} (Order &amp; Info)</div>
-        <div><label>Invoice No.</label>${esc(inv.no)}</div><div><label>Date</label>${dfmt(inv.date)}</div>
-        <div><label>Customer</label>${esc(inv.customer || '')}</div><div><label>Mobile</label>${esc(inv.mobile || '')}</div>
-        <div><label>Address</label>${esc(inv.address || '')}</div><div><label>Payment method</label>${esc(inv.method || '')}</div>
-        <div><label>Delivery address</label>${esc(inv.delivery || inv.address || '')}</div><div><label>Order reference</label>${esc(inv.reference || '')}</div>
-      </div>
-      <table class="invoice-table"><thead><tr><th>SL</th><th>Product description</th><th>Qty</th><th>Unit price</th><th>Total</th></tr></thead><tbody>${rows}${blank}</tbody></table>
-      <div class="invoice-bottom"><div class="invoice-words"><b>Amount in words</b><br><br>${words(inv.total)}</div>
-        <div class="invoice-summary"><div><span>Subtotal</span><span>${money(inv.subtotal)}</span></div>
-        <div><span>Delivery charge</span><span>${money(inv.deliveryCharge)}</span></div><div><span>Discount</span><span>${money(inv.discount)}</span></div>
-        <div class="total"><span>Total payable</span><span>${money(inv.total)}</span></div>
-        <div><span>${esc(inv.paidLabel || 'Paid / advance')}</span><span>${money(inv.paid)}</span></div><div><span>${esc(inv.dueLabel || 'Balance due')}</span><span>${money(inv.due)}</span></div></div></div>
-      <div class="invoice-note"><b>Notes</b><br>${esc(inv.notes || '')}</div>
-      <div class="invoice-sign"><div>Customer signature</div><div>Authorized signature</div></div>
-      <div class="invoice-thanks">Thank you for choosing RS KrishiCare.</div></div></div>`;
-    document.body.appendChild(m);
-    $('#cl', m).onclick = () => m.remove();
-    $('#pr', m).onclick = () => window.print();
-  }
+  const showInvoice = makeShowInvoice(h);
 
   async function openInvoice(saleId) {
     const [s, it] = await Promise.all([
@@ -422,5 +412,5 @@ export function initOps(h) {
     };
   }
 
-  return { viewPurchases, viewSales, viewPayments, openInvoice, openFbInvoice };
+  return { viewPurchases, viewSales, viewPayments, openInvoice, openFbInvoice, showInvoice };
 }

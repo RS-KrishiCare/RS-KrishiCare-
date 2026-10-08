@@ -1,8 +1,11 @@
 // Estimates (quotations) for retailers.
 // An estimate is only a saved, printable document. It never changes stock, sales, payments,
 // expenses, accounts, profit or any report.
+import { makeShowInvoice } from './invoice.js';
+
 export function initEst(h, ops) {
   const { sb, $, esc, money, num, N, today, toast, errMsg, has, opts, chk, confirmReason, fsec, carry } = h;
+  const showInvoice = makeShowInvoice(h);
   const numIn = (cls, label, val = 0) => `<label>${label}<input class="${cls}" type="number" step="any" min="0" inputmode="decimal" value="${val}"></label>`;
   const fld = (name, label, val = 0) => `<label>${label}<input name="${name}" type="number" step="any" min="0" inputmode="decimal" value="${val}"></label>`;
   const addDays = (iso, n) => { const d = new Date(iso + 'T00:00:00'); d.setDate(d.getDate() + n); return d.toLocaleDateString('en-CA'); };
@@ -140,7 +143,7 @@ export function initEst(h, ops) {
     chk([e, it]);
     if (!e.data) throw new Error('Estimate not found.');
     const x = e.data;
-    await ops.showInvoice({
+    await showInvoice({
       estimate: true, title: 'ESTIMATE', subtitle: 'Quotation — not an invoice', noLabel: 'Estimate No.', totalLabel: 'Estimated total',
       methodLabel: 'Valid until', method: x.valid_until ? dshow(x.valid_until) : 'Not specified', refLabel: 'Reference',
       no: x.estimate_no, date: x.estimate_date, customer: x.customer_name, mobile: x.mobile, address: x.address, delivery: x.address, reference: x.reference,

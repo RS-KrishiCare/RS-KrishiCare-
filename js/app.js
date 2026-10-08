@@ -5,7 +5,7 @@ import { initReports } from './reports.js';
 import { initDash } from './dash.js';
 import { initEst } from './est.js';
 import { ic } from './icons.js';
-import { initUI, setSelect } from './ui.js';
+import { initUI, setSelect, refreshCatData } from './ui.js';
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
@@ -256,7 +256,7 @@ function renderShell() {
   <button id="lo" class="hb" aria-label="Sign out" title="Sign out">${ic('logout', 20)}</button></header>
   <nav class="side" id="nav"><div class="nav-brand"><img src="assets/wordmark.jpg" alt="RS KrishiCare" onerror="this.style.display='none'"><small>মানসম্মত কৃষিপণ্য, সঠিক পরামর্শ, সমৃদ্ধ কৃষক</small></div>${items.map(n => `<a href="#${n.id}" data-id="${n.id}">${ic(n.ic, 20)}<span>${n.t}</span></a>`).join('')}<button type="button" class="navbtn" id="nrf">${ic('refresh', 20)}<span>Refresh data</span></button></nav>
   <main id="view"></main>
-  <footer class="foot"><img src="assets/wordmark.jpg" alt="RS KrishiCare" onerror="this.style.display='none'"><div>মানসম্মত কৃষিপণ্য, সঠিক পরামর্শ, সমৃদ্ধ কৃষক</div></footer>`;
+  <footer class="foot"><img src="assets/wordmark.jpg" alt="RS KrishiCare" onerror="this.style.display='none'"><div>মানসম্মত কৃষিপণ্য, সঠিক পরামর্শ, সমৃদ্ধ কৃষক</div><div class="ver">Version 2026.10.08-4</div></footer>`;
   $('#menu').onclick = () => $('#nav').classList.toggle('open');
   $('#lo').onclick = logout;
   const refresh = () => { const b = $('#rf'); b.disabled = true; route().finally(() => { b.disabled = false; }); };
@@ -271,7 +271,7 @@ async function route() {
   const cur = items.find(n => n.id === id) || items[0];
   document.querySelectorAll('#nav a').forEach(a => a.classList.toggle('on', a.dataset.id === cur.id));
   const el = $('#view'); el.innerHTML = LOADING;
-  try { await cur.fn(el); } catch (e) { el.innerHTML = `<p class="err">${esc(errMsg(e))}</p>`; }
+  try { await refreshCatData(sb); await cur.fn(el); } catch (e) { el.innerHTML = `<p class="err">${esc(errMsg(e))}</p>`; }
 }
 
 /* ---------- views ---------- */
