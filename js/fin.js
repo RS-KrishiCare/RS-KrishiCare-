@@ -386,7 +386,7 @@ export function initFin(h, ops) {
       business: async () => {
         const { data } = await sb.from('settings').select('value').eq('key', 'business').maybeSingle();
         const b = data?.value || {};
-        const K = [['name', 'Business name'], ['subtitle', 'Subtitle'], ['founder', 'Founder name'], ['founder_title', 'Founder title'], ['address', 'Address'], ['phone', 'Phone']];
+        const K = [['name', 'Business name'], ['subtitle', 'Subtitle'], ['founder', 'Founder name'], ['founder_title', 'Founder title'], ['address', 'Address'], ['phone', 'Phone'], ['tagline', 'Product line (shown under the address on estimates)']];
         $('#sec', el).innerHTML = `<div class="bar"><h2>Business information</h2></div><p class="mut">Shown on every invoice.</p><form id="bf" class="box">${K.map(([k, l]) => `<label>${l}<input name="${k}" value="${esc(b[k] || '')}"></label>`).join('')}<button class="btn" style="width:100%">Save</button></form>`;
         $('#bf', el).onsubmit = async e => {
           e.preventDefault(); const fd = new FormData(e.target);

@@ -144,8 +144,8 @@ export function initEst(h, ops) {
     if (!e.data) throw new Error('Estimate not found.');
     const x = e.data;
     await showInvoice({
-      estimate: true, title: 'ESTIMATE', subtitle: 'Quotation — not an invoice', noLabel: 'Estimate No.', totalLabel: 'Estimated total',
-      methodLabel: 'Valid until', method: x.valid_until ? dshow(x.valid_until) : 'Not specified', refLabel: 'Reference',
+      estimate: true, layout: 'reference', titlePre: 'Estimated', title: 'INVOICE', subtitle: 'Customer copy', noLabel: 'Estimate No.', totalLabel: 'Estimated total',
+      methodLabel: 'Valid until', method: x.valid_until ? dshow(x.valid_until).replace(/ /g, '-') : 'Not specified', refLabel: 'Reference',
       no: x.estimate_no, date: x.estimate_date, customer: x.customer_name, mobile: x.mobile, address: x.address, delivery: x.address, reference: x.reference,
       notes: x.notes, items: (it.data || []).map(i => ({ name: i.product_name, qty: i.qty, unit_price: i.unit_price, line_total: i.line_total })),
       subtotal: x.subtotal, deliveryCharge: x.delivery_charge, discount: x.discount, total: x.total
