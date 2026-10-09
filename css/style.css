@@ -267,3 +267,58 @@ header.top .brand-h img{border:2px solid #ffffffd9;box-shadow:0 0 0 1px #0000001
 label.catf{margin-bottom:2px}
 .ver{margin-top:6px;font-size:10.5px;color:#9aa89a}
 @media print{body.printing-doc>*:not(.modal){display:none!important}}
+
+/* ===== Reference-style estimate document (matches the printed RS KrishiCare invoice) ===== */
+.rdoc{background:#fff;color:#16352a;font-family:Arial,Helvetica,sans-serif;font-size:12px;padding:14px;max-width:794px;margin:0 auto;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.rdoc *{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.rd-top{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;padding:2px 2px 6px}
+.rd-top h1{margin:0;font-size:26px;line-height:1.1;color:#0b5a37;font-weight:800;letter-spacing:-.2px}
+.rd-top p{margin:10px 0 0;font-size:11px;color:#6b7a73}
+.rd-title{text-align:right}
+.rd-t1{white-space:nowrap;line-height:1.1}
+.rd-t1 .pre{font-size:12px;font-weight:700;color:#0b5a37;margin-right:2px}
+.rd-t1 .big{font-size:27px;font-weight:800;color:#0b5a37;letter-spacing:-.2px}
+.rd-title small{display:block;margin-top:10px;font-size:10.5px;color:#6b7a73}
+.rd-line{height:8px;background:#7ac143}
+.rd-bar{display:flex;justify-content:space-between;gap:8px;background:#06402a;color:#fff;padding:7px 8px;font-size:12.5px}
+.rd-bar b:last-child{font-size:11px}
+.rd-band{background:#eaf4ec;padding:7px 8px 8px}
+.rd-addr{display:flex;justify-content:space-between;align-items:baseline;gap:8px;font-size:12px}
+.rd-addr .ph{font-size:15px;white-space:nowrap}.rd-addr .oi{font-size:14px}
+.rd-tag{margin-top:7px;font-size:10.5px;color:#6b7a73}
+.rd-info{display:grid;grid-template-columns:104px 1fr 96px 1fr;gap:3px 0;margin:12px 0 8px;align-items:stretch}
+.rd-info .l{font-weight:700;font-size:10.5px;color:#0b3d28;padding:9px 4px 0 2px;white-space:nowrap}
+.rd-info .v{background:#fff8e1;border:1px solid #c9d3bf;padding:8px 6px;min-height:30px;font-size:12.5px;word-break:break-word}
+.rd-table{width:100%;min-width:0;border-collapse:collapse;margin-top:6px}
+.rd-table th{background:#0b6b3f;color:#fff;text-align:left;font-size:11px;padding:9px 6px;font-weight:700;border:0}
+.rd-table td{padding:7px 6px;font-size:12px;border-bottom:1px solid #b9ccc0;white-space:normal;height:28px}
+.rd-table tr.alt td{background:#eef6ef}
+.rd-table td.in{background:#fff8e1}.rd-table tr.alt td.in{background:#fbf3d9}
+.rd-table .c{text-align:center;width:42px}.rd-table .r{text-align:right}
+.rd-table th:nth-child(3),.rd-table td:nth-child(3){width:54px}.rd-table th:nth-child(4),.rd-table td:nth-child(4){width:104px}.rd-table th:nth-child(5),.rd-table td:nth-child(5){width:100px}
+.rd-bottom{display:grid;grid-template-columns:1fr 275px;gap:14px;margin-top:12px;align-items:start}
+.rd-left .lab{font-size:10.5px;font-weight:700;color:#0b3d28;margin:2px 0 4px}
+.rd-left .bx{background:#fff8e1;border:1px solid #c9d3bf;border-radius:0;padding:8px;min-height:44px;font-size:12px;white-space:pre-line}
+.rd-left .bx.notes{min-height:34px;margin-bottom:0}
+.rd-left .bx.words{margin-bottom:16px}
+.rd-sum .row{display:flex;justify-content:space-between;gap:8px;padding:7px 8px;font-size:12px;border:1px solid transparent}
+.rd-sum .row.g{background:#eaf4ec}.rd-sum .row.cr{background:#fff8e1;border-color:#c9d3bf}
+.rd-sum .row.tot{background:#0b6b3f;color:#fff;font-weight:800;font-size:13px}
+.rd-sum .row.cr:last-of-type{}
+.rd-sum .row span:last-child{font-weight:600}
+.rd-sign{display:flex;justify-content:space-between;gap:24px;margin-top:30px}
+.rd-sign div{flex:1;border-top:1px solid #4a5d54;padding-top:5px;font-size:11px;color:#16352a}.rd-sign div:last-child{text-align:right}
+.rd-thanks{margin-top:22px;background:#e8f3ea;text-align:center;padding:9px;font-size:11px;color:#2c5a45}
+@media(max-width:560px){
+  .rdoc{padding:10px;font-size:11px}.rd-top h1{font-size:21px}.rd-t1 .big{font-size:22px}
+  .rd-info{grid-template-columns:104px 1fr}.rd-info .l{padding-top:9px;font-size:10px}
+  .rd-bottom{grid-template-columns:1fr}.rd-addr{flex-direction:column;gap:2px}.rd-addr .ph{font-size:13px}
+  .rd-table th,.rd-table td{padding:6px 4px;font-size:11px}.rd-table th:nth-child(4),.rd-table td:nth-child(4){width:78px}.rd-table th:nth-child(5),.rd-table td:nth-child(5){width:80px}.rd-table th:nth-child(3),.rd-table td:nth-child(3){width:38px}.rd-table .c{width:30px}
+}
+@media print{
+  .rdoc{padding:0;max-width:none}.rd-bottom{grid-template-columns:1fr 275px;margin-top:8px}.rd-info{grid-template-columns:104px 1fr 96px 1fr;margin:8px 0 6px}
+  .rd-table tr{page-break-inside:avoid}.rd-table td{height:22px;padding:3px 6px}.rd-table th{padding:7px 6px}
+  .rd-top h1{font-size:24px}.rd-top p,.rd-title small{margin-top:6px}.rd-info .v{min-height:26px;padding:6px}.rd-info .l{padding-top:7px}
+  .rd-sign{margin-top:16px}.rd-thanks{margin-top:10px;padding:7px}.rd-left .bx.words{margin-bottom:10px}
+}
+@media print{html,body,.modal.inv,.modal.inv .sheet{background:#fff!important;min-height:0!important;height:auto!important}}
