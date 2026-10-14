@@ -133,6 +133,7 @@ async function handleSession(session) {
   if (state.userId === session.user.id && state.profile) return;
   const { data, error } = await sb.rpc('ensure_my_profile');
   if (error) { toast(errMsg(error), 'err'); return renderAuth(); }
+  if (data.role === 'customer') { location.replace('shop.html#/account'); return; }
   state.userId = session.user.id; state.profile = data;
   if (!sessionStorage.getItem('logged')) { sessionStorage.setItem('logged', '1'); sb.rpc('log_event', { p_action: 'login' }); }
   if (!data.is_active) return renderPending();
@@ -161,12 +162,26 @@ function modal(title, body, onSave, saveLabel = 'Save') {
   };
   return m;
 }
+// Resize the photo in the browser (max 1000px, JPEG) before uploading, so phone photos stay small and the site stays fast.
+async function uploadImage(file) {
+  const bmp = await createImageBitmap(file);
+  const k = Math.min(1, 1000 / Math.max(bmp.width, bmp.height));
+  const cv = document.createElement('canvas'); cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
+  const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height); cx.drawImage(bmp, 0, 0, cv.width, cv.height);
+  const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.82));
+  const path = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now())) + '.jpg';
+  const { error } = await sb.storage.from('product-images').upload(path, blob, { contentType: 'image/jpeg', upsert: false });
+  if (error) throw new Error('Photo upload failed: ' + error.message);
+  return sb.storage.from('product-images').getPublicUrl(path).data.publicUrl;
+}
 function field(f, v) {
   const val = v?.[f.key] ?? f.def ?? '';
   if (f.type === 'select')
     return `<label>${f.label}<select name="${f.key}">${f.options.map(o => `<option value="${esc(o[0])}" ${String(o[0]) === String(val) ? 'selected' : ''}>${esc(o[1])}</option>`).join('')}</select></label>`;
+  if (f.type === 'image')
+    return `<label>${f.label}<div class="imgup">${val ? `<img src="${esc(val)}" alt="" class="imgprev">` : ''}<input type="hidden" name="${f.key}" value="${esc(val)}"><input type="file" name="${f.key}_file" accept="image/*"></div><small class="mut">Choose a photo from the camera or gallery. It is resized automatically.</small></label>`;
   if (f.type === 'check')
-    return `<label class="chk"><input type="checkbox" name="${f.key}" ${(v ? v[f.key] : true) ? 'checked' : ''}> ${f.label}</label>`;
+    return `<label class="chk"><input type="checkbox" name="${f.key}" ${(v ? v[f.key] : f.def !== false) ? 'checked' : ''}> ${f.label}</label>`;
   if (f.type === 'textarea')
     return `<label>${f.label}<textarea name="${f.key}" rows="2">${esc(val)}</textarea></label>`;
   return `<label>${f.label}<input name="${f.key}" type="${f.type || 'text'}" ${f.type === 'number' ? 'step="any" min="0" inputmode="decimal"' : ''} ${f.req ? 'required' : ''} value="${esc(val)}"></label>`;
@@ -201,6 +216,8 @@ async function listView(el, cfg) {
   const load = async () => { try { rows = await cfg.load(); draw(); } catch (e) { $('#list', el).innerHTML = `<p class="err pad">${esc(errMsg(e))}</p>`; } };
   const edit = row => modal(row ? cfg.editTitle : cfg.newTitle, cfg.fields.map(f => field(f, row)).join(''), async fd => {
     const p = readForm(fd, cfg.fields);
+    if (cfg.validate) cfg.validate(p);
+    for (const f of cfg.fields.filter(x => x.type === 'image')) { const file = fd.get(f.key + '_file'); if (file && file.size) p[f.key] = await uploadImage(file); }
     const { error } = row ? await sb.from(cfg.table).update(p).eq('id', row.id) : await sb.from(cfg.table).insert(p);
     if (error) throw error;
     toast('Saved successfully.'); await load();
@@ -306,7 +323,12 @@ async function viewProducts(el) {
     { key: 'unit', label: 'Unit', type: 'select', def: 'piece', options: ['piece', 'packet', 'kg', 'gram', 'litre', 'ml', 'bag', 'carton', 'bundle', 'set', 'other'].map(u => [u, u]) },
     { key: 'units_per_carton', label: 'Pieces per carton (used to share shipping costs automatically)', type: 'number', nullZero: true },
     { key: 'sell_price', label: 'Standard retailer price', type: 'number' }, { key: 'facebook_price', label: 'Facebook price', type: 'number' },
-    { key: 'min_stock', label: 'Minimum stock (low-stock alert)', type: 'number' }, { key: 'is_active', label: 'Active', type: 'check' }
+    { key: 'min_stock', label: 'Minimum stock (low-stock alert)', type: 'number' },
+    { key: 'image_url', label: 'Product photo', type: 'image' },
+    { key: 'description', label: 'Description (shown on the website)', type: 'textarea' },
+    { key: 'web_price', label: 'Website price (৳)', type: 'number', nullZero: true },
+    { key: 'web_visible', label: 'Show this product on the public website', type: 'check', def: false },
+    { key: 'is_active', label: 'Active', type: 'check' }
   ];
   const cols = [
     { h: 'Product', f: x => `<b>${esc(x.name)}</b>${x.sku ? `<br><small>${esc(x.sku)}</small>` : ''}` },
@@ -314,10 +336,13 @@ async function viewProducts(el) {
     { h: 'Stock', f: x => `<span class="badge ${seeCost && Number(x.qty_on_hand) <= Number(x.min_stock) ? 'low' : ''}">${num(x.qty_on_hand)} ${esc(x.unit)}</span>` },
     { h: 'Retailer price', f: x => money(x.sell_price) }, { h: 'Facebook price', f: x => money(x.facebook_price) }
   ];
-  if (seeCost) cols.splice(3, 0, { h: 'Pieces / carton', f: x => x.units_per_carton ? num(x.units_per_carton) : '—' });
+  if (seeCost) cols.splice(1, 0, { h: 'Photo', f: x => x.image_url ? `<img class="thumb" src="${esc(x.image_url)}" alt="" loading="lazy">` : '—' });
+  if (seeCost) cols.push({ h: 'Website', f: x => x.web_visible ? (x.web_price ? `<span class="badge">${money(x.web_price)}</span>` : '<span class="badge low">No price</span>') : '<small>Hidden</small>' });
+  if (seeCost) cols.splice(4, 0, { h: 'Pieces / carton', f: x => x.units_per_carton ? num(x.units_per_carton) : '—' });
   if (seeCost) cols.push({ h: 'Avg. cost (WAC)', f: x => money(x.avg_cost) }, { h: 'Stock value', f: x => money(Number(x.qty_on_hand) * Number(x.avg_cost)) });
   await listView(el, {
     title: 'Products & Stock', table: 'products', canEdit, fields, cols, searchKeys: ['name', 'sku'],
+    validate: p => { if (p.web_visible && !(Number(p.web_price) > 0)) throw new Error('Enter a website price to show this product on the public website.'); },
     newTitle: 'New product', editTitle: 'Edit product', empty: 'No products yet. Use “+ New” to add your first product.',
     note: canEdit ? 'Tap <b>Edit</b> to correct a product’s name, code, category, unit, prices or minimum stock. Stock quantity and average cost are controlled by purchases, sales and Inventory Control and cannot be typed in here. To remove a product from use, untick “Active”.' : '',
     load: async () => {
@@ -374,7 +399,7 @@ async function viewSuppliers(el) {
 }
 
 async function viewUsers(el) {
-  const { data, error } = await sb.from('profiles').select('*').order('created_at'); if (error) throw error;
+  const { data, error } = await sb.from('profiles').select('*').neq('role', 'customer').order('created_at'); if (error) throw error;
   el.innerHTML = `<div class="bar"><h2>Users & Roles</h2></div>
   <p class="mut">New users appear here as inactive after they sign up. Choose a role and activate them.</p>
   <div class="tablewrap"><table><thead><tr><th>Name</th><th>Role</th><th>Active</th><th></th></tr></thead><tbody>
