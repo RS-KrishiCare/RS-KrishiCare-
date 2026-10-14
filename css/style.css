@@ -322,3 +322,6 @@ label.catf{margin-bottom:2px}
   .rd-sign{margin-top:16px}.rd-thanks{margin-top:10px;padding:7px}.rd-left .bx.words{margin-bottom:10px}
 }
 @media print{html,body,.modal.inv,.modal.inv .sheet{background:#fff!important;min-height:0!important;height:auto!important}}
+
+.thumb{width:42px;height:42px;object-fit:contain;border-radius:6px;background:#fff;border:1px solid var(--bd)}
+.imgup{display:flex;align-items:center;gap:10px;margin-top:4px}.imgup input[type=file]{min-height:0;border:0;padding:0;margin:0}.imgprev{width:64px;height:64px;object-fit:contain;border-radius:8px;border:1px solid var(--bd);background:#fff}
