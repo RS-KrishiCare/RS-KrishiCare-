@@ -6,7 +6,8 @@ const $ = (s, r = document) => r.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = n => '৳ ' + Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 2 });
 const root = $('#shop');
-const S = { products: [], cats: [], cat: '', q: '', user: null, profile: null, recovery: false };
+const S = { products: [], cats: [], banners: [], cat: '', q: '', user: null, profile: null, recovery: false };
+let slideTimer = null;
 
 /* ---------- cart (kept in this phone's browser) ---------- */
 const loadCart = () => { try { return JSON.parse(localStorage.getItem('rsk_cart') || '{}'); } catch (_) { return {}; } };
@@ -14,7 +15,7 @@ const saveCart = c => { localStorage.setItem('rsk_cart', JSON.stringify(c)); bad
 const cartItems = () => Object.entries(loadCart()).map(([id, q]) => ({ p: S.products.find(x => x.id === id), q })).filter(x => x.p && x.q > 0);
 const cartTotal = () => cartItems().reduce((s, x) => s + x.q * Number(x.p.price), 0);
 function badge() { const n = cartItems().reduce((s, x) => s + x.q, 0), b = $('#cart-count'); b.textContent = n; b.hidden = !n; }
-function addToCart(id, n = 1) { const c = loadCart(); c[id] = Math.min(99, (c[id] || 0) + n); saveCart(c); toast('Added to cart'); }
+function addToCart(id, n = 1, silent = false) { const c = loadCart(); c[id] = Math.min(99, (c[id] || 0) + n); saveCart(c); if (!silent) toast('Added to cart'); }
 function setQty(id, q) { const c = loadCart(); if (q <= 0) delete c[id]; else c[id] = Math.min(99, q); saveCart(c); }
 
 function toast(m, type = '') { const d = document.createElement('div'); d.textContent = m; if (type) d.className = type; $('#toast').appendChild(d); setTimeout(() => d.remove(), 4200); }
@@ -22,49 +23,88 @@ const errText = e => { const m = (e && e.message) || String(e); return /Failed t
 const STATUS = { New: ['Order received', 'amb'], Confirmed: ['Confirmed', ''], Processing: ['Being prepared', ''], Packed: ['Being prepared', ''], Shipped: ['On the way', ''], Delivered: ['Delivered', ''], Returned: ['Returned', 'red'], Failed: ['Delivery failed', 'red'], Cancelled: ['Cancelled', 'red'] };
 const stBadge = s => { const [t, c] = STATUS[s] || [s, '']; return `<span class="badge ${c}">${esc(t)}</span>`; };
 const imgOf = p => p.image_url ? `<img src="${esc(p.image_url)}" alt="${esc(p.name)}" loading="lazy" onerror="this.replaceWith(document.createTextNode('No image'))">` : 'No image';
+const safeLink = u => /^(https?:\/\/|#\/)/.test(u || '') ? u : '#/';
+const IC = {
+  all: '<path d="M3 3h7v7H3zM14 3h7v7h-7zM14 14h7v7h-7zM3 14h7v7H3z"/>',
+  spray: '<path d="M9 3h6v3H9z"/><path d="M8 6h8l1 3v11a1 1 0 0 1-1 1H8a1 1 0 0 1-1-1V9z"/><path d="M4 7h4M4 10h3"/>',
+  sprout: '<path d="M7 21h10M12 21v-9"/><path d="M12 12c0-4-3-6-7-6 0 4 3 6 7 6z"/><path d="M12 14c0-3 2-5 6-5 0 3-2 5-6 5z"/>',
+  wrench: '<path d="M14.7 6.3a4 4 0 0 0 5 5l-6.5 6.5a2.1 2.1 0 0 1-3-3z"/><path d="m9.5 14.5-5 5"/><path d="M14.7 6.3 17 4l2 2-2.3 2.3"/>',
+  tag: '<path d="M20.6 13.4 13.4 20.6a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><path d="M7.5 7.5h.01"/>',
+  flask: '<path d="M9 3h6M10 3v6L4.5 19a1.5 1.5 0 0 0 1.3 2.2h12.4a1.5 1.5 0 0 0 1.3-2.2L14 9V3"/>',
+  pack: '<path d="M21 8a2 2 0 0 0-1-1.7l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.7l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="m3.3 7 8.7 5 8.7-5M12 22V12"/>'
+};
+const iconFor = n => /spray/i.test(n) ? 'spray' : /offer/i.test(n) ? 'tag' : /garden|seed|sapl|plant/i.test(n) ? 'sprout' : /spare|part|tool/i.test(n) ? 'wrench' : /fert|soil|nutri/i.test(n) ? 'flask' : 'pack';
+const svg = (k, z = 26) => `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[k] || IC.pack}</svg>`;
+const priceHtml = p => `${money(p.price)}${p.old_price ? ` <s class="old">${money(p.old_price)}</s>` : ''}`;
 
 /* ---------- data ---------- */
 async function loadCatalog() {
   const [p, c] = await Promise.all([sb.from('v_public_products').select('*').order('name'), sb.from('v_public_categories').select('*').order('name')]);
   if (p.error) throw p.error;
   S.products = p.data || []; S.cats = c.data || [];
+  try { const b = await sb.from('v_public_banners').select('*'); S.banners = b.error ? [] : (b.data || []); } catch (_) { S.banners = []; }
 }
 
 /* ---------- pages ---------- */
+function slidesHtml() {
+  const list = S.banners.length ? S.banners : [{ def: true }];
+  const body = list.map(b => b.def
+    ? `<div class="sl sl-def"><div class="slt"><h2>Quality agricultural products,<br>trusted advice, prosperous farmers</h2><p>Sprayers, spare parts, seeds, fertilizer and gardening tools — order online and pay cash on delivery.</p><div class="bn">মানসম্মত কৃষিপণ্য, সঠিক পরামর্শ, সমৃদ্ধ কৃষক</div></div></div>`
+    : `<a class="sl" href="${esc(safeLink(b.link_url))}" style="background-image:url('${esc(b.image_url)}')">${b.title || b.subtitle ? `<div class="slt shade">${b.title ? `<h2>${esc(b.title)}</h2>` : ''}${b.subtitle ? `<p>${esc(b.subtitle)}</p>` : ''}</div>` : ''}</a>`).join('');
+  return `<div class="sh-slider"><div class="sh-slides" id="slides">${body}</div>${list.length > 1 ? `<div class="sh-dots" id="dots">${list.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : ''}</div>`;
+}
+function startSlides() {
+  clearInterval(slideTimer); const c = $('#slides'); if (!c) return;
+  const n = c.children.length; if (n < 2) return;
+  const dots = [...document.querySelectorAll('#dots i')]; let hold = false, rel = null;
+  const idx = () => Math.round(c.scrollLeft / c.clientWidth);
+  c.addEventListener('scroll', () => dots.forEach((d, i) => d.classList.toggle('on', i === idx())), { passive: true });
+  ['touchstart', 'mousedown'].forEach(ev => c.addEventListener(ev, () => { hold = true; clearTimeout(rel); }, { passive: true }));
+  ['touchend', 'mouseup', 'mouseleave'].forEach(ev => c.addEventListener(ev, () => { clearTimeout(rel); rel = setTimeout(() => { hold = false; }, 4000); }, { passive: true }));
+  slideTimer = setInterval(() => { if (hold || document.hidden || !document.body.contains(c)) return; c.scrollTo({ left: ((idx() + 1) % n) * c.clientWidth, behavior: 'smooth' }); }, 5000);
+}
+
 function home() {
-  const list = S.products.filter(p => (!S.cat || p.category_id === S.cat) && (!S.q || (p.name + ' ' + (p.category_name || '')).toLowerCase().includes(S.q.toLowerCase())));
-  root.innerHTML = `<section class="sh-hero"><h1>Quality agricultural products,<br>trusted advice, prosperous farmers</h1><p>Sprayers, spare parts, seeds, fertilizer and gardening tools — order online and pay cash on delivery.</p><div class="bn">মানসম্মত কৃষিপণ্য, সঠিক পরামর্শ, সমৃদ্ধ কৃষক</div></section>
-  <div class="sh-tools"><input class="sh-search" id="q" type="search" placeholder="Search products…" value="${esc(S.q)}"></div>
-  <div class="sh-chips"><button class="sh-chip ${S.cat ? '' : 'on'}" data-c="">All</button>${S.cats.map(c => `<button class="sh-chip ${S.cat === c.id ? 'on' : ''}" data-c="${esc(c.id)}">${esc(c.name)}</button>`).join('')}</div>
-  <div id="grid"></div>`;
+  const hasOffer = S.products.some(p => p.old_price);
+  const tiles = [['', 'All', 'all'], ...S.cats.map(c => [c.id, c.name, iconFor(c.name)]), ...(hasOffer ? [['__offer', 'Offer', 'tag']] : [])];
+  root.innerHTML = `${slidesHtml()}
+  <div class="sh-cats" id="cats">${tiles.map(([id, name, ic]) => `<button class="sh-cat-t ${S.cat === id ? 'on' : ''}" data-c="${esc(id)}"><span class="ci">${svg(ic, 24)}</span><span>${esc(name)}</span></button>`).join('')}</div>
+  <div class="sh-tools"><input class="sh-search" id="q" type="search" placeholder="Search products…" value="${esc(S.q)}"></div><div id="grid"></div>`;
+  const card = p => `<div class="sh-card"><a class="sh-img" href="#/p/${esc(p.id)}">${imgOf(p)}</a><div class="sh-b"><div class="sh-cat">${esc(p.category_name || '')}</div>
+    <a class="sh-name" href="#/p/${esc(p.id)}">${esc(p.name)}</a><div class="sh-price">${priceHtml(p)}</div>
+    <div class="sh-stock ${p.in_stock ? 'in' : 'out'}">${p.in_stock ? '● In stock' : '● Out of stock'}</div>
+    <button class="btn ghost" data-a="${esc(p.id)}" ${p.in_stock ? '' : 'disabled'}>Add to cart</button>
+    <button class="btn" data-o="${esc(p.id)}" ${p.in_stock ? '' : 'disabled'}>Order Now</button></div></div>`;
   const draw = () => {
-    const l = S.products.filter(p => (!S.cat || p.category_id === S.cat) && (!S.q || (p.name + ' ' + (p.category_name || '')).toLowerCase().includes(S.q.toLowerCase())));
+    const l = S.products.filter(p => (!S.cat || (S.cat === '__offer' ? p.old_price : p.category_id === S.cat)) && (!S.q || (p.name + ' ' + (p.category_name || '')).toLowerCase().includes(S.q.toLowerCase())));
     $('#grid').innerHTML = l.length ? `<div class="sh-grid">${l.map(card).join('')}</div>` : `<p class="sh-empty">${S.products.length ? 'No products match your search.' : 'Our online catalog is being prepared. Please call 01997905850 to order.'}</p>`;
   };
-  const card = p => `<div class="sh-card"><div class="sh-img" data-d="${esc(p.id)}">${imgOf(p)}</div><div class="sh-b"><div class="sh-cat">${esc(p.category_name || '')}</div>
-    <div class="sh-name" data-d="${esc(p.id)}">${esc(p.name)}</div><div class="sh-price">${money(p.price)}</div>
-    <div class="sh-stock ${p.in_stock ? 'in' : 'out'}">${p.in_stock ? '● In stock' : '● Out of stock'}</div>
-    <button class="btn" data-a="${esc(p.id)}" ${p.in_stock ? '' : 'disabled'}>${p.in_stock ? 'Add to cart' : 'Unavailable'}</button></div></div>`;
-  draw();
+  draw(); startSlides();
   $('#q').oninput = e => { S.q = e.target.value; draw(); };
-  root.querySelector('.sh-chips').onclick = e => { const b = e.target.closest('[data-c]'); if (!b) return; S.cat = b.dataset.c; home(); };
+  $('#cats').onclick = e => { const b = e.target.closest('[data-c]'); if (!b) return; S.cat = b.dataset.c; home(); };
   root.onclick = e => {
     const a = e.target.closest('[data-a]'); if (a) return addToCart(a.dataset.a);
-    const d = e.target.closest('[data-d]'); if (d) detail(d.dataset.d);
+    const o = e.target.closest('[data-o]'); if (o) { addToCart(o.dataset.o, 1, true); location.hash = '#/checkout'; }
   };
 }
 
-function detail(id) {
-  const p = S.products.find(x => x.id === id); if (!p) return;
-  const m = document.createElement('div'); m.className = 'modal';
-  m.innerHTML = `<div class="sheet">${p.image_url ? `<img class="big" src="${esc(p.image_url)}" alt="${esc(p.name)}" onerror="this.remove()">` : ''}
-    <div class="sh-cat" style="margin-top:8px">${esc(p.category_name || '')}</div><h3>${esc(p.name)}</h3><div class="sh-price">${money(p.price)} <small style="color:var(--mut);font-weight:400">/ ${esc(p.unit)}</small></div>
-    <div class="sh-stock ${p.in_stock ? 'in' : 'out'}" style="margin:4px 0">${p.in_stock ? '● In stock' : '● Out of stock'}</div>
-    ${p.description ? `<p>${esc(p.description)}</p>` : ''}
-    <div style="display:flex;gap:8px;margin-top:10px"><button class="btn ghost" id="x" style="flex:1">Close</button><button class="btn" id="ad" style="flex:2" ${p.in_stock ? '' : 'disabled'}>Add to cart</button></div></div>`;
-  document.body.appendChild(m);
-  m.onclick = e => { if (e.target === m) m.remove(); };
-  $('#x', m).onclick = () => m.remove(); $('#ad', m).onclick = () => { addToCart(p.id); m.remove(); };
+function productPage(id) {
+  const p = S.products.find(x => x.id === id);
+  if (!p) { root.innerHTML = `<p class="sh-empty">This product is not available.</p><p style="text-align:center"><a href="#/">← Back to shop</a></p>`; return; }
+  let qn = 1;
+  root.innerHTML = `<p style="margin:4px 0"><a class="link" href="#/" style="text-decoration:none">← Back to shop</a></p><div class="box pp">
+    ${p.image_url ? `<img class="ppimg" src="${esc(p.image_url)}" alt="${esc(p.name)}" onerror="this.remove()">` : '<div class="sh-img" style="aspect-ratio:16/9;cursor:default">No image</div>'}
+    <div class="sh-cat" style="margin-top:10px">${esc(p.category_name || '')}</div><h2 class="sh-h" style="margin:2px 0 6px">${esc(p.name)}</h2>
+    <div class="sh-price" style="font-size:22px">${priceHtml(p)} <small style="color:var(--mut);font-weight:400;font-size:13px">/ ${esc(p.unit)}</small></div>
+    <div class="sh-stock ${p.in_stock ? 'in' : 'out'}" style="margin:6px 0 10px">${p.in_stock ? '● In stock' : '● Out of stock'}</div>
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><span style="color:var(--mut);font-size:14px">Quantity</span><div class="qty"><button id="qm">−</button><span id="qv">1</span><button id="qp">+</button></div></div>
+    <button class="btn ghost block" id="pa" ${p.in_stock ? '' : 'disabled'}>Add to cart</button>
+    <button class="btn block" id="po" style="margin-top:8px" ${p.in_stock ? '' : 'disabled'}>Order Now</button>
+    ${p.description ? `<h3 style="margin:18px 0 6px">Product details</h3><p class="pdesc">${esc(p.description)}</p>` : ''}</div>`;
+  const upd = () => { $('#qv').textContent = qn; };
+  $('#qm').onclick = () => { qn = Math.max(1, qn - 1); upd(); }; $('#qp').onclick = () => { qn = Math.min(99, qn + 1); upd(); };
+  $('#pa').onclick = () => addToCart(p.id, qn);
+  $('#po').onclick = () => { addToCart(p.id, qn, true); location.hash = '#/checkout'; };
 }
 
 function cart() {
@@ -184,14 +224,15 @@ function recovery() {
 function route() {
   const h = (location.hash || '#/').replace(/^#\/?/, '').split('?')[0];
   document.querySelectorAll('.sh-nav a').forEach(a => a.classList.remove('on'));
-  window.scrollTo(0, 0); root.onclick = null;
+  window.scrollTo(0, 0); root.onclick = null; clearInterval(slideTimer);
+  if (h.startsWith('p/')) return productPage(h.slice(2));
   if (h === 'cart') return cart();
   if (h === 'checkout') return checkout();
   if (h === 'track') return track();
   if (h === 'account') return account();
   home();
 }
-function navAccount() { $('#nav-account').textContent = S.user ? (S.profile?.full_name || 'Account').split(' ')[0] : 'Login'; }
+function navAccount() { $('#nav-account-t').textContent = S.user ? (S.profile?.full_name || 'Profile').split(' ')[0] : 'Login'; $('#nav-account').title = S.user ? 'My profile' : 'Login'; }
 async function setUser(session) {
   S.user = session?.user || null; S.profile = null;
   if (S.user) { const { data } = await sb.from('profiles').select('full_name,phone,role').eq('id', S.user.id).maybeSingle(); S.profile = data; }

@@ -327,6 +327,7 @@ async function viewProducts(el) {
     { key: 'image_url', label: 'Product photo', type: 'image' },
     { key: 'description', label: 'Description (shown on the website)', type: 'textarea' },
     { key: 'web_price', label: 'Website price (৳)', type: 'number', nullZero: true },
+    { key: 'web_old_price', label: 'Regular price before discount (optional — lists the product under "Offer")', type: 'number', nullZero: true },
     { key: 'web_visible', label: 'Show this product on the public website', type: 'check', def: false },
     { key: 'is_active', label: 'Active', type: 'check' }
   ];

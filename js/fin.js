@@ -351,6 +351,14 @@ export function initFin(h, ops) {
         cols: [{ h: 'Name', f: x => `<b>${esc(x.name)}</b>` }, { h: 'Phone', f: x => esc(x.phone || '—') }, { h: 'Status', f: x => x.is_active ? 'Active' : 'Inactive' }],
         load: async () => { const { data, error } = await sb.from('couriers').select('*').order('name'); if (error) throw error; return data; }
       }),
+      banners: () => listView($('#sec', el), {
+        title: 'Website banners', table: 'site_banners', canEdit: true, newTitle: 'New banner', editTitle: 'Edit banner', empty: 'No banners yet. The website shows a default banner until you add one.', searchKeys: ['title'],
+        note: 'Banners rotate automatically on the website home page and can be swiped. Use a wide photo (about 1200 × 500). Title and text are optional. A lower order number shows first.',
+        fields: [{ key: 'image_url', label: 'Banner image', type: 'image' }, { key: 'title', label: 'Title (optional)' }, { key: 'subtitle', label: 'Text under the title (optional)' }, { key: 'link_url', label: 'Link when tapped (optional, e.g. #/p/… or https://…)' }, { key: 'sort_order', label: 'Order (1 = first)', type: 'number' }, { key: 'is_active', label: 'Show on the website', type: 'check' }],
+        cols: [{ h: '', f: x => x.image_url ? `<img src="${esc(x.image_url)}" alt="" style="width:80px;height:34px;object-fit:cover;border-radius:6px">` : '' }, { h: 'Title', f: x => esc(x.title || '—') }, { h: 'Order', f: x => num(x.sort_order) }, { h: 'Status', f: x => x.is_active ? 'Shown' : 'Hidden' }],
+        validate: p => { if (!p.image_url) throw new Error('Please add a banner image.'); },
+        load: async () => { const { data, error } = await sb.from('site_banners').select('*').order('sort_order'); if (error) throw error; return data; }
+      }),
       productcats: () => listView($('#sec', el), {
         title: 'Product categories', table: 'categories', canEdit: true, newTitle: 'New product category', editTitle: 'Edit product category', empty: 'No categories.', searchKeys: ['name'],
         note: 'These appear in the product form and in the Category filter of purchases and sales. Deactivate a category instead of deleting it.',
@@ -396,7 +404,7 @@ export function initFin(h, ops) {
         };
       }
     };
-    const T = [['business', 'Business info'], ['couriers', 'Couriers'], ['productcats', 'Product categories'], ['categories', 'Expense categories'], ['accounts', 'Payment accounts'], ['partners', 'Partners']];
+    const T = [['business', 'Business info'], ['couriers', 'Couriers'], ['banners', 'Website banners'], ['productcats', 'Product categories'], ['categories', 'Expense categories'], ['accounts', 'Payment accounts'], ['partners', 'Partners']];
     el.innerHTML = `<div class="bar"><h2>Settings</h2></div><div class="btnrow">${T.map(([k, l]) => `<button class="btn ghost sm" data-s="${k}">${l}</button>`).join('')}</div><div id="sec">${LOADING}</div>`;
     const open = k => { el.querySelectorAll('[data-s]').forEach(b => b.classList.toggle('on', b.dataset.s === k)); SECTIONS[k](); };
     el.querySelectorAll('[data-s]').forEach(b => b.onclick = () => open(b.dataset.s));
