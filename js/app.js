@@ -182,6 +182,10 @@ function field(f, v) {
     return `<label>${f.label}<div class="imgup">${val ? `<img src="${esc(val)}" alt="" class="imgprev">` : ''}<input type="hidden" name="${f.key}" value="${esc(val)}"><input type="file" name="${f.key}_file" accept="image/*"></div><small class="mut">Choose a photo from the camera or gallery. It is resized automatically.</small></label>`;
   if (f.type === 'check')
     return `<label class="chk"><input type="checkbox" name="${f.key}" ${(v ? v[f.key] : f.def !== false) ? 'checked' : ''}> ${f.label}</label>`;
+  if (f.type === 'images') {
+    const list = Array.isArray(val) ? val : [];
+    return `<label>${f.label}<input type="hidden" name="${f.key}" value="${esc(JSON.stringify(list))}"><span class="fi-list">${list.map(u => `<span class="fi"><img src="${esc(u)}" alt=""><button type="button" class="fi-x" data-u="${esc(u)}" onclick="event.preventDefault();const h=this.closest('label').querySelector('input[type=hidden]');h.value=JSON.stringify(JSON.parse(h.value).filter(x=>x!==this.dataset.u));this.parentElement.remove()">✕ Remove</button></span>`).join('')}</span><input type="file" name="${f.key}_files" accept="image/*" multiple><small>You can keep up to 8 images. Removing happens when you press Save.</small></label>`;
+  }
   if (f.type === 'textarea')
     return `<label>${f.label}<textarea name="${f.key}" rows="2">${esc(val)}</textarea></label>`;
   return `<label>${f.label}<input name="${f.key}" type="${f.type || 'text'}" ${f.type === 'number' ? 'step="any" min="0" inputmode="decimal"' : ''} ${f.req ? 'required' : ''} value="${esc(val)}"></label>`;
@@ -190,6 +194,7 @@ function readForm(fd, fields) {
   const o = {};
   for (const f of fields) {
     if (f.type === 'check') o[f.key] = fd.get(f.key) === 'on';
+    else if (f.type === 'images') { try { o[f.key] = JSON.parse(fd.get(f.key) || '[]'); } catch (_) { o[f.key] = []; } }
     else if (f.type === 'number') { const n = Number(fd.get(f.key) || 0); o[f.key] = (f.nullZero && !n) ? null : n; }
     else { const v = (fd.get(f.key) || '').trim(); o[f.key] = v === '' ? null : v; }
   }
@@ -217,6 +222,12 @@ async function listView(el, cfg) {
   const edit = row => modal(row ? cfg.editTitle : cfg.newTitle, cfg.fields.map(f => field(f, row)).join(''), async fd => {
     const p = readForm(fd, cfg.fields);
     if (cfg.validate) cfg.validate(p);
+    for (const f of cfg.fields.filter(x => x.type === 'images')) {
+      const files = fd.getAll(f.key + '_files').filter(x => x && x.size), cur = p[f.key] || [];
+      if (cur.length + files.length > 8) throw new Error('You can keep up to 8 feature images. Remove some first.');
+      for (const file of files) cur.push(await uploadImage(file));
+      p[f.key] = cur;
+    }
     for (const f of cfg.fields.filter(x => x.type === 'image')) { const file = fd.get(f.key + '_file'); if (file && file.size) p[f.key] = await uploadImage(file); }
     const { error } = row ? await sb.from(cfg.table).update(p).eq('id', row.id) : await sb.from(cfg.table).insert(p);
     if (error) throw error;
@@ -325,6 +336,7 @@ async function viewProducts(el) {
     { key: 'sell_price', label: 'Standard retailer price', type: 'number' }, { key: 'facebook_price', label: 'Facebook price', type: 'number' },
     { key: 'min_stock', label: 'Minimum stock (low-stock alert)', type: 'number' },
     { key: 'image_url', label: 'Product photo', type: 'image' },
+    { key: 'feature_images', label: 'Feature images (shown on the product page)', type: 'images' },
     { key: 'description', label: 'Description (shown on the website)', type: 'textarea' },
     { key: 'web_price', label: 'Website price (৳)', type: 'number', nullZero: true },
     { key: 'web_old_price', label: 'Regular price before discount (optional — lists the product under "Offer")', type: 'number', nullZero: true },

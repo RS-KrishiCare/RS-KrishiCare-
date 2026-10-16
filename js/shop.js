@@ -64,43 +64,50 @@ function startSlides() {
   slideTimer = setInterval(() => { if (hold || document.hidden || !document.body.contains(c)) return; c.scrollTo({ left: ((idx() + 1) % n) * c.clientWidth, behavior: 'smooth' }); }, 5000);
 }
 
+const discBadge = p => p.old_price && Number(p.old_price) > Number(p.price) ? `<span class="disc">${Math.max(1, Math.round((p.old_price - p.price) / p.old_price * 100))}% OFF</span>` : '';
+const cardHtml = p => `<div class="sh-card"><a class="sh-img" href="#/p/${esc(p.id)}">${discBadge(p)}${imgOf(p)}</a><div class="sh-b"><div class="sh-cat">${esc(p.category_name || '')}</div>
+    <a class="sh-name" href="#/p/${esc(p.id)}">${esc(p.name)}</a><div class="sh-price">${priceHtml(p)}</div>
+    <div class="sh-stock ${p.in_stock ? 'in' : 'out'}">${p.in_stock ? '● In stock' : '● Out of stock'}</div>
+    <button class="btn ghost" data-a="${esc(p.id)}" ${p.in_stock ? '' : 'disabled'}>Add to cart</button>
+    <button class="btn" data-o="${esc(p.id)}" ${p.in_stock ? '' : 'disabled'}>Order Now</button></div></div>`;
+function cardClicks(e) {
+  const a = e.target.closest('[data-a]'); if (a) return addToCart(a.dataset.a);
+  const o = e.target.closest('[data-o]'); if (o) { addToCart(o.dataset.o, 1, true); location.hash = '#/checkout'; }
+}
+
 function home() {
   const hasOffer = S.products.some(p => p.old_price);
   const tiles = [['', 'All', 'all'], ...S.cats.map(c => [c.id, c.name, iconFor(c.name)]), ...(hasOffer ? [['__offer', 'Offer', 'tag']] : [])];
   root.innerHTML = `${slidesHtml()}
   <div class="sh-cats" id="cats">${tiles.map(([id, name, ic]) => `<button class="sh-cat-t ${S.cat === id ? 'on' : ''}" data-c="${esc(id)}"><span class="ci">${svg(ic, 24)}</span><span>${esc(name)}</span></button>`).join('')}</div>
   <div class="sh-tools"><input class="sh-search" id="q" type="search" placeholder="Search products…" value="${esc(S.q)}"></div><div id="grid"></div>`;
-  const card = p => `<div class="sh-card"><a class="sh-img" href="#/p/${esc(p.id)}">${imgOf(p)}</a><div class="sh-b"><div class="sh-cat">${esc(p.category_name || '')}</div>
-    <a class="sh-name" href="#/p/${esc(p.id)}">${esc(p.name)}</a><div class="sh-price">${priceHtml(p)}</div>
-    <div class="sh-stock ${p.in_stock ? 'in' : 'out'}">${p.in_stock ? '● In stock' : '● Out of stock'}</div>
-    <button class="btn ghost" data-a="${esc(p.id)}" ${p.in_stock ? '' : 'disabled'}>Add to cart</button>
-    <button class="btn" data-o="${esc(p.id)}" ${p.in_stock ? '' : 'disabled'}>Order Now</button></div></div>`;
   const draw = () => {
     const l = S.products.filter(p => (!S.cat || (S.cat === '__offer' ? p.old_price : p.category_id === S.cat)) && (!S.q || (p.name + ' ' + (p.category_name || '')).toLowerCase().includes(S.q.toLowerCase())));
-    $('#grid').innerHTML = l.length ? `<div class="sh-grid">${l.map(card).join('')}</div>` : `<p class="sh-empty">${S.products.length ? 'No products match your search.' : 'Our online catalog is being prepared. Please call 01997905850 to order.'}</p>`;
+    $('#grid').innerHTML = l.length ? `<div class="sh-grid">${l.map(cardHtml).join('')}</div>` : `<p class="sh-empty">${S.products.length ? 'No products match your search.' : 'Our online catalog is being prepared. Please call 01997905850 to order.'}</p>`;
   };
   draw(); startSlides();
   $('#q').oninput = e => { S.q = e.target.value; draw(); };
   $('#cats').onclick = e => { const b = e.target.closest('[data-c]'); if (!b) return; S.cat = b.dataset.c; home(); };
-  root.onclick = e => {
-    const a = e.target.closest('[data-a]'); if (a) return addToCart(a.dataset.a);
-    const o = e.target.closest('[data-o]'); if (o) { addToCart(o.dataset.o, 1, true); location.hash = '#/checkout'; }
-  };
+  root.onclick = cardClicks;
 }
 
 function productPage(id) {
   const p = S.products.find(x => x.id === id);
   if (!p) { root.innerHTML = `<p class="sh-empty">This product is not available.</p><p style="text-align:center"><a href="#/">← Back to shop</a></p>`; return; }
   let qn = 1;
+  const rel = p.category_id ? S.products.filter(x => x.id !== p.id && x.category_id === p.category_id).slice(0, 10) : [];
   root.innerHTML = `<p style="margin:4px 0"><a class="link" href="#/" style="text-decoration:none">← Back to shop</a></p><div class="box pp">
-    ${p.image_url ? `<img class="ppimg" src="${esc(p.image_url)}" alt="${esc(p.name)}" onerror="this.remove()">` : '<div class="sh-img" style="aspect-ratio:16/9;cursor:default">No image</div>'}
+    ${p.image_url ? `<div class="ppwrap">${discBadge(p)}<img class="ppimg" src="${esc(p.image_url)}" alt="${esc(p.name)}" onerror="this.remove()"></div>` : '<div class="sh-img" style="aspect-ratio:16/9;cursor:default">No image</div>'}
     <div class="sh-cat" style="margin-top:10px">${esc(p.category_name || '')}</div><h2 class="sh-h" style="margin:2px 0 6px">${esc(p.name)}</h2>
     <div class="sh-price" style="font-size:22px">${priceHtml(p)} <small style="color:var(--mut);font-weight:400;font-size:13px">/ ${esc(p.unit)}</small></div>
     <div class="sh-stock ${p.in_stock ? 'in' : 'out'}" style="margin:6px 0 10px">${p.in_stock ? '● In stock' : '● Out of stock'}</div>
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><span style="color:var(--mut);font-size:14px">Quantity</span><div class="qty"><button id="qm">−</button><span id="qv">1</span><button id="qp">+</button></div></div>
     <button class="btn ghost block" id="pa" ${p.in_stock ? '' : 'disabled'}>Add to cart</button>
     <button class="btn block" id="po" style="margin-top:8px" ${p.in_stock ? '' : 'disabled'}>Order Now</button>
-    ${p.description ? `<h3 style="margin:18px 0 6px">Product details</h3><p class="pdesc">${esc(p.description)}</p>` : ''}</div>`;
+    ${p.description ? `<h3 style="margin:18px 0 6px">Product details</h3><p class="pdesc">${esc(p.description)}</p>` : ''}
+    ${(p.feature_images || []).length ? `<h3 style="margin:18px 0 6px">Features</h3><div class="feat">${p.feature_images.map(u => `<img src="${esc(u)}" alt="${esc(p.name)} feature" loading="lazy" onerror="this.remove()">`).join('')}</div>` : ''}</div>
+    ${rel.length ? `<h2 class="sh-h" style="margin-top:22px">Related products</h2><div class="sh-grid">${rel.map(cardHtml).join('')}</div>` : ''}`;
+  root.onclick = cardClicks;
   const upd = () => { $('#qv').textContent = qn; };
   $('#qm').onclick = () => { qn = Math.max(1, qn - 1); upd(); }; $('#qp').onclick = () => { qn = Math.min(99, qn + 1); upd(); };
   $('#pa').onclick = () => addToCart(p.id, qn);
