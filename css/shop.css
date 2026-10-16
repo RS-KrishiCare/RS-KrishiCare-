@@ -67,3 +67,12 @@ label{display:block;margin:10px 0;font-size:13.5px;color:var(--mut)}label input,
 .sh-b{flex:1}
 .sh-cat{min-height:1.3em;line-height:1.3}
 .sh-name{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;line-clamp:2;overflow:hidden;line-height:1.3;min-height:2.6em}
+
+/* discount badge */
+.sh-img{position:relative}.ppwrap{position:relative}
+.disc{position:absolute;top:8px;left:8px;z-index:2;background:#d32f2f;color:#fff;font-weight:800;font-size:12px;line-height:1;padding:5px 8px;border-radius:6px;box-shadow:0 1px 3px #0003;letter-spacing:.2px}
+.feat img{display:block;width:100%;height:auto;border-radius:10px;margin:8px 0;background:#fff}
+/* desktop: wider content and more columns (phone layout untouched) */
+@media(min-width:1000px){main{max-width:1560px;padding-left:24px;padding-right:24px}.sh-top{padding-left:24px;padding-right:24px}}
+@media(min-width:1200px){.sh-grid{grid-template-columns:repeat(5,1fr)}}
+@media(min-width:1500px){.sh-grid{grid-template-columns:repeat(6,1fr)}}
