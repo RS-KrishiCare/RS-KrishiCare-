@@ -96,17 +96,17 @@ function productPage(id) {
   if (!p) { root.innerHTML = `<p class="sh-empty">This product is not available.</p><p style="text-align:center"><a href="#/">← Back to shop</a></p>`; return; }
   let qn = 1;
   const rel = p.category_id ? S.products.filter(x => x.id !== p.id && x.category_id === p.category_id).slice(0, 10) : [];
-  root.innerHTML = `<p style="margin:4px 0"><a class="link" href="#/" style="text-decoration:none">← Back to shop</a></p><div class="box pp">
-    ${p.image_url ? `<div class="ppwrap">${discBadge(p)}<img class="ppimg" src="${esc(p.image_url)}" alt="${esc(p.name)}" onerror="this.remove()"></div>` : '<div class="sh-img" style="aspect-ratio:16/9;cursor:default">No image</div>'}
-    <div class="sh-cat" style="margin-top:10px">${esc(p.category_name || '')}</div><h2 class="sh-h" style="margin:2px 0 6px">${esc(p.name)}</h2>
-    <div class="sh-price" style="font-size:22px">${priceHtml(p)} <small style="color:var(--mut);font-weight:400;font-size:13px">/ ${esc(p.unit)}</small></div>
-    <div class="sh-stock ${p.in_stock ? 'in' : 'out'}" style="margin:6px 0 10px">${p.in_stock ? '● In stock' : '● Out of stock'}</div>
-    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><span style="color:var(--mut);font-size:14px">Quantity</span><div class="qty"><button id="qm">−</button><span id="qv">1</span><button id="qp">+</button></div></div>
-    <button class="btn ghost block" id="pa" ${p.in_stock ? '' : 'disabled'}>Add to cart</button>
-    <button class="btn block" id="po" style="margin-top:8px" ${p.in_stock ? '' : 'disabled'}>Order Now</button>
-    ${p.description ? `<h3 style="margin:18px 0 6px">Product details</h3><p class="pdesc">${esc(p.description)}</p>` : ''}
-    ${(p.feature_images || []).length ? `<h3 style="margin:18px 0 6px">Features</h3><div class="feat">${p.feature_images.map(u => `<img src="${esc(u)}" alt="${esc(p.name)} feature" loading="lazy" onerror="this.remove()">`).join('')}</div>` : ''}</div>
-    ${rel.length ? `<h2 class="sh-h" style="margin-top:22px">Related products</h2><div class="sh-grid">${rel.map(cardHtml).join('')}</div>` : ''}`;
+  const hl = t => { const L = String(t || '').split(/\r?\n/).map(x => x.trim()).filter(Boolean); return L.length < 2 ? `<p class="pdesc">${esc(L[0] || '')}</p>` : `<ul class="pp-hl">${L.map(l => `<li>${esc(l.replace(/^[•\-*✓✔●▪‣]+\s*/, ''))}</li>`).join('')}</ul>`; };
+  root.innerHTML = `<p class="pp-back"><a class="link" href="#/">← Back to shop</a></p><div class="box pp">
+    <div class="pp-top"><div class="pp-media">${p.image_url ? `<div class="ppwrap">${discBadge(p)}<img class="ppimg" src="${esc(p.image_url)}" alt="${esc(p.name)}" onerror="this.remove()"></div>` : '<div class="sh-img" style="aspect-ratio:16/9;cursor:default">No image</div>'}</div>
+    <div class="pp-info">${p.category_name ? `<span class="pp-cat">${esc(p.category_name)}</span>` : ''}<h1 class="pp-title">${esc(p.name)}</h1>
+      <div class="pp-price">${priceHtml(p)} <small>/ ${esc(p.unit)}</small></div>
+      <div class="pp-stock ${p.in_stock ? 'in' : 'out'}">${p.in_stock ? '● In stock' : '● Out of stock'}</div>
+      <div class="pp-qty"><span>Quantity</span><div class="qty"><button id="qm">−</button><span id="qv">1</span><button id="qp">+</button></div></div>
+      <div class="pp-cta"><button class="btn ghost block" id="pa" ${p.in_stock ? '' : 'disabled'}>Add to cart</button><button class="btn block" id="po" ${p.in_stock ? '' : 'disabled'}>Order Now</button></div></div></div>
+    ${p.description ? `<section class="pp-sec"><h3>Product highlights</h3>${hl(p.description)}</section>` : ''}
+    ${(p.feature_images || []).length ? `<section class="pp-sec"><h3>Features</h3><div class="feat">${p.feature_images.map(u => `<img src="${esc(u)}" alt="${esc(p.name)} feature" loading="lazy" decoding="async" onerror="this.remove()">`).join('')}</div></section>` : ''}</div>
+    ${rel.length ? `<section class="pp-rel"><h2 class="pp-rel-h">Related products</h2><div class="sh-grid">${rel.map(cardHtml).join('')}</div></section>` : ''}`;
   root.onclick = cardClicks;
   const upd = () => { $('#qv').textContent = qn; };
   $('#qm').onclick = () => { qn = Math.max(1, qn - 1); upd(); }; $('#qp').onclick = () => { qn = Math.min(99, qn + 1); upd(); };
