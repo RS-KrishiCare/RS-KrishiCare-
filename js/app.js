@@ -133,7 +133,7 @@ async function handleSession(session) {
   if (state.userId === session.user.id && state.profile) return;
   const { data, error } = await sb.rpc('ensure_my_profile');
   if (error) { toast(errMsg(error), 'err'); return renderAuth(); }
-  if (data.role === 'customer') { location.replace('shop.html#/account'); return; }
+  if (data.role === 'customer') { location.replace('/#/account'); return; }
   state.userId = session.user.id; state.profile = data;
   if (!sessionStorage.getItem('logged')) { sessionStorage.setItem('logged', '1'); sb.rpc('log_event', { p_action: 'login' }); }
   if (!data.is_active) return renderPending();
