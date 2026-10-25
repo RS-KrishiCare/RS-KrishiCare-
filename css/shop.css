@@ -127,3 +127,5 @@ label{display:block;margin:10px 0;font-size:13.5px;color:var(--mut)}label input,
 .pp-thumbs{display:flex;gap:8px;overflow-x:auto;padding:10px 2px 2px;scrollbar-width:thin}
 .pp-thumbs .th{flex:none;width:64px;height:64px;padding:0;border:2px solid var(--bd);border-radius:10px;background:#fff;overflow:hidden;cursor:pointer}
 .pp-thumbs .th.on{border-color:var(--g)}.pp-thumbs .th img{display:block;width:100%;height:100%;object-fit:cover}
+
+.sh-bestrow{cursor:grab;user-select:none;-webkit-user-select:none}.sh-bestrow.drag{cursor:grabbing}.sh-bestrow img{-webkit-user-drag:none;user-drag:none}
