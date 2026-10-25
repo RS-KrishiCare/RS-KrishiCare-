@@ -367,10 +367,10 @@ export function initFin(h, ops) {
       }),
       productcats: () => listView($('#sec', el), {
         title: 'Product categories', table: 'categories', canEdit: true, newTitle: 'New product category', editTitle: 'Edit product category', empty: 'No categories.', searchKeys: ['name'],
-        note: 'These appear in the product form and in the Category filter of purchases and sales. Deactivate a category instead of deleting it.',
-        fields: [{ key: 'name', label: 'Category name', req: true }, { key: 'is_active', label: 'Active', type: 'check' }],
-        cols: [{ h: 'Name', f: x => `<b>${esc(x.name)}</b>` }, { h: 'Status', f: x => x.is_active ? 'Active' : 'Inactive' }],
-        load: async () => { const { data, error } = await sb.from('categories').select('*').order('name'); if (error) throw error; return data; }
+        note: 'These appear in the product form and in the Category filter of purchases and sales. <b>Website order:</b> the website lists categories (and their products) from the lowest number to the highest — change the number to move a category earlier or later. Deactivate a category instead of deleting it.',
+        fields: [{ key: 'name', label: 'Category name', req: true }, { key: 'sort_order', label: 'Display order on the website (1 = shown first, 2 = second …)', type: 'number', def: 100 }, { key: 'is_active', label: 'Active', type: 'check' }],
+        cols: [{ h: 'Name', f: x => `<b>${esc(x.name)}</b>` }, { h: 'Website order', f: x => num(x.sort_order) }, { h: 'Status', f: x => x.is_active ? 'Active' : 'Inactive' }],
+        load: async () => { const { data, error } = await sb.from('categories').select('*').order('sort_order').order('name'); if (error) throw error; return data; }
       }),
       categories: () => listView($('#sec', el), {
         title: 'Expense categories', table: 'expense_categories', canEdit: true, newTitle: 'New category', editTitle: 'Edit category', empty: 'No categories.', searchKeys: ['name'],
@@ -399,12 +399,38 @@ export function initFin(h, ops) {
       },
       shop: async () => {
         const { data } = await sb.from('settings').select('value').eq('key', 'shop').maybeSingle();
-        const on = !!(data?.value && data.value.show_stock);
-        $('#sec', el).innerHTML = `<div class="bar"><h2>Website options</h2></div><p class="mut">Customers can always add products to the cart and order them, whether or not there is stock. This option only controls whether the website shows “In stock / Out of stock”.</p><form id="sf" class="box"><label style="display:flex;gap:10px;align-items:center"><input type="checkbox" name="show_stock" ${on ? 'checked' : ''} style="width:auto"> Show product stock availability (In stock / Out of stock) on the website</label><button class="btn" style="width:100%;margin-top:10px">Save</button></form>`;
+        const v = data?.value || {}, on = !!v.show_stock, POS = [['br', 'Bottom right'], ['bl', 'Bottom left'], ['tr', 'Top right'], ['tl', 'Top left'], ['c', 'Center']];
+        $('#sec', el).innerHTML = `<div class="bar"><h2>Website options</h2></div>
+        <form id="sf" class="box">
+          <h3 style="margin:0 0 6px">Stock display</h3><p class="mut">Customers can always add products to the cart and order them, whether or not there is stock. This only controls whether the website shows “In stock / Out of stock”.</p>
+          <label style="display:flex;gap:10px;align-items:center"><input type="checkbox" name="show_stock" ${on ? 'checked' : ''} style="width:auto"> Show product stock availability on the website</label>
+          <h3 style="margin:16px 0 6px">Logo watermark on product photos</h3><p class="mut">Your logo is placed automatically on every product photo shown on the website (old and new photos). Upload a logo seal — a PNG with a transparent background looks best. Your original photos are not changed.</p>
+          ${v.watermark_url ? `<div style="background:repeating-conic-gradient(#e5e5e5 0 25%,#fff 0 50%) 0 0/16px 16px;border-radius:8px;padding:8px;display:inline-block;margin-bottom:6px"><img src="${esc(v.watermark_url)}" alt="Current logo" style="max-height:70px;display:block"></div><label style="display:flex;gap:10px;align-items:center"><input type="checkbox" name="rm_logo" style="width:auto"> Remove the logo watermark</label>` : '<p class="mut"><b>No logo uploaded yet.</b></p>'}
+          <label>${v.watermark_url ? 'Replace logo' : 'Upload logo'} (PNG / JPG / WEBP)<input type="file" name="logo" accept="image/png,image/jpeg,image/webp"></label>
+          <div class="row2"><label>Position<select name="wm_pos">${POS.map(([k, l]) => `<option value="${k}" ${(v.wm_pos || 'br') === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+          <label>Logo size (% of photo width, 8–60)<input name="wm_size" type="number" min="8" max="60" step="1" value="${esc(v.wm_size ?? 22)}"></label></div>
+          <label>Logo opacity (20–100%)<input name="wm_opacity" type="number" min="20" max="100" step="5" value="${Math.round((v.wm_opacity ?? 0.7) * 100)}"></label>
+          <button class="btn" style="width:100%;margin-top:10px">Save</button></form>`;
         $('#sf', el).onsubmit = async e => {
-          e.preventDefault(); const value = { show_stock: !!new FormData(e.target).get('show_stock') };
-          const { error } = await sb.from('settings').upsert({ key: 'shop', value }); if (error) return toast(errMsg(error), 'err');
-          toast('Website options saved.');
+          e.preventDefault(); const fd = new FormData(e.target), btn = e.target.querySelector('.btn'); btn.disabled = true;
+          try {
+            let url = v.watermark_url || '';
+            if (fd.get('rm_logo')) url = '';
+            const file = fd.get('logo');
+            if (file && file.size) {   // keep transparency: shrink to max 600px wide and store as PNG
+              const bmp = await createImageBitmap(file), k = Math.min(1, 600 / bmp.width), cv = document.createElement('canvas');
+              cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k); cv.getContext('2d').drawImage(bmp, 0, 0, cv.width, cv.height);
+              const blob = await new Promise(r => cv.toBlob(r, 'image/png'));
+              const path = 'branding/watermark-' + Date.now() + '.png';
+              const up = await sb.storage.from('product-images').upload(path, blob, { contentType: 'image/png', upsert: false });
+              if (up.error) throw new Error('Logo upload failed: ' + up.error.message);
+              url = sb.storage.from('product-images').getPublicUrl(path).data.publicUrl;
+            }
+            const value = { ...v, show_stock: !!fd.get('show_stock'), watermark_url: url, wm_pos: fd.get('wm_pos'),
+              wm_size: Math.min(60, Math.max(8, Number(fd.get('wm_size')) || 22)), wm_opacity: Math.min(1, Math.max(0.2, (Number(fd.get('wm_opacity')) || 70) / 100)) };
+            const { error } = await sb.from('settings').upsert({ key: 'shop', value }); if (error) throw error;
+            toast('Website options saved.'); SECTIONS.shop();
+          } catch (err) { toast(errMsg(err), 'err'); btn.disabled = false; }
         };
       },
       business: async () => {
