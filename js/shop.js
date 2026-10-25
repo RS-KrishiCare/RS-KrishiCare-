@@ -23,7 +23,7 @@ function setQty(id, q) { const c = loadCart(); if (q <= 0) delete c[id]; else c[
 
 function toast(m, type = '') { const d = document.createElement('div'); d.textContent = m; if (type) d.className = type; $('#toast').appendChild(d); setTimeout(() => d.remove(), 4200); }
 const errText = e => { const m = (e && e.message) || String(e); return /Failed to fetch|NetworkError|Load failed/i.test(m) ? 'Network problem. Please check your connection and try again.' : m; };
-const STATUS = { New: ['Order received', 'amb'], Confirmed: ['Confirmed', ''], Processing: ['Being prepared', ''], Packed: ['Being prepared', ''], Shipped: ['On the way', ''], Delivered: ['Delivered', ''], Returned: ['Returned', 'red'], Failed: ['Delivery failed', 'red'], Cancelled: ['Cancelled', 'red'] };
+const STATUS = { New: ['Pending Confirmation', 'amb'], Confirmed: ['Confirmed', ''], Processing: ['Being prepared', ''], Packed: ['Being prepared', ''], Shipped: ['On the way', ''], Delivered: ['Delivered', ''], Returned: ['Returned', 'red'], Failed: ['Delivery failed', 'red'], Cancelled: ['Cancelled', 'red'] };
 const stBadge = s => { const [t, c] = STATUS[s] || [s, '']; return `<span class="badge ${c}">${esc(t)}</span>`; };
 const imgOf = p => p.image_url ? `<img src="${esc(p.image_url)}" alt="${esc(p.name)}" loading="lazy" onerror="this.replaceWith(document.createTextNode('No image'))">` : 'No image';
 const safeLink = u => /^(https?:\/\/|#\/)/.test(u || '') ? u : '#/';
@@ -38,13 +38,21 @@ const IC = {
 };
 const iconFor = n => /spray/i.test(n) ? 'spray' : /offer/i.test(n) ? 'tag' : /garden|seed|sapl|plant/i.test(n) ? 'sprout' : /spare|part|tool/i.test(n) ? 'wrench' : /fert|soil|nutri/i.test(n) ? 'flask' : 'pack';
 const svg = (k, z = 26) => `<svg width="${z}" height="${z}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${IC[k] || IC.pack}</svg>`;
+/* category order on the shop: Gardening Tools, Sprayer, Spare Parts, Seeds, then the rest A–Z */
+const CAT_ORDER = [/garden/i, /spray/i, /spare/i, /seed|sapl/i];
+const catRank = n => { const i = CAT_ORDER.findIndex(r => r.test(n || '')); return i < 0 ? 99 : i; };
+const byCat = (a, b) => catRank(a.category_name) - catRank(b.category_name) || String(a.category_name || '').localeCompare(String(b.category_name || '')) || String(a.name).localeCompare(String(b.name));
+const catPhoto = id => { const p = S.products.find(x => x.image_url && (id === '__offer' ? x.old_price : x.category_id === id)); return p ? p.image_url : ''; };
+const hasStockInfo = p => typeof p.in_stock === 'boolean';   // null = owner has hidden stock
+const stockHtml = (p, cls) => hasStockInfo(p) ? `<div class="${cls} ${p.in_stock ? 'in' : 'out'}">${p.in_stock ? '● In stock' : '● Out of stock'}</div>` : '';
+const DC_NOTICE = 'ডেলিভারি চার্জ অগ্রিম পেমেন্ট করতে হবে। ডেলিভারি চার্জ পণ্য ও পণ্যের পরিমাণ অনুযায়ী কমবেশি হতে পারে। সঠিক ডেলিভারি চার্জ জানাতে এবং অর্ডার কনফার্ম করতে আমরা আপনার সঙ্গে ফোনে যোগাযোগ করব।';
 const priceHtml = p => `${money(p.price)}${p.old_price ? ` <s class="old">${money(p.old_price)}</s>` : ''}`;
 
 /* ---------- data ---------- */
 async function loadCatalog() {
   const [p, c] = await Promise.all([sb.from('v_public_products').select('*').order('name'), sb.from('v_public_categories').select('*').order('name')]);
   if (p.error) throw p.error;
-  S.products = p.data || []; S.cats = c.data || [];
+  S.products = (p.data || []).sort(byCat); S.cats = (c.data || []).sort((a, b) => catRank(a.name) - catRank(b.name) || String(a.name).localeCompare(String(b.name)));
   try { const b = await sb.from('v_public_banners').select('*'); S.banners = b.error ? [] : (b.data || []); } catch (_) { S.banners = []; }
 }
 
@@ -67,12 +75,34 @@ function startSlides() {
   slideTimer = setInterval(() => { if (hold || document.hidden || !document.body.contains(c)) return; c.scrollTo({ left: ((idx() + 1) % n) * c.clientWidth, behavior: 'smooth' }); }, 5000);
 }
 
+let bestRaf = 0;
+function bestHtml() {
+  const l = S.products.filter(p => p.is_best); if (!l.length) return '';
+  const set = l.map(p => `<div class="bt">${cardHtml(p)}</div>`).join('');
+  return `<section class="sh-best"><h3 class="sh-sec">Best Products</h3><div class="sh-bestrow" id="bestrow"><div class="bset">${set}</div><div class="bset" aria-hidden="true">${set}</div></div></section>`;
+}
+function startBest() {   // slides right-to-left on its own, can be swiped by hand, pauses while touched
+  cancelAnimationFrame(bestRaf); const r = $('#bestrow'); if (!r) return;
+  const half = r.scrollWidth / 2; if (half <= r.clientWidth + 8) return;
+  let pos = r.scrollLeft, last = 0, hold = false, rel = null;
+  const stop = () => { hold = true; clearTimeout(rel); }, go = () => { clearTimeout(rel); rel = setTimeout(() => { pos = r.scrollLeft; hold = false; }, 1500); };
+  ['touchstart', 'mousedown', 'wheel'].forEach(ev => r.addEventListener(ev, stop, { passive: true }));
+  ['touchend', 'touchcancel', 'mouseup', 'mouseleave'].forEach(ev => r.addEventListener(ev, go, { passive: true }));
+  const tick = t => {
+    if (!document.body.contains(r)) return;
+    const dt = last ? Math.min(t - last, 64) : 0; last = t;
+    if (!hold && !document.hidden) { pos += dt * 0.035; if (pos >= half) pos -= half; r.scrollLeft = pos; } else if (hold) pos = r.scrollLeft;
+    if (r.scrollLeft >= half) { r.scrollLeft -= half; pos = r.scrollLeft; }
+    bestRaf = requestAnimationFrame(tick);
+  };
+  bestRaf = requestAnimationFrame(tick);
+}
 const discBadge = p => p.old_price && Number(p.old_price) > Number(p.price) ? `<span class="disc">${Math.max(1, Math.round((p.old_price - p.price) / p.old_price * 100))}% OFF</span>` : '';
 const cardHtml = p => `<div class="sh-card"><a class="sh-img" href="#/p/${esc(p.id)}">${discBadge(p)}${imgOf(p)}</a><div class="sh-b"><div class="sh-cat">${esc(p.category_name || '')}</div>
     <a class="sh-name" href="#/p/${esc(p.id)}">${esc(p.name)}</a><div class="sh-price">${priceHtml(p)}</div>
-    <div class="sh-stock ${p.in_stock ? 'in' : 'out'}">${p.in_stock ? '● In stock' : '● Out of stock'}</div>
-    <button class="btn ghost" data-a="${esc(p.id)}" ${p.in_stock ? '' : 'disabled'}>Add to cart</button>
-    <button class="btn" data-o="${esc(p.id)}" ${p.in_stock ? '' : 'disabled'}>Order Now</button></div></div>`;
+    ${stockHtml(p, 'sh-stock')}
+    <button class="btn ghost" data-a="${esc(p.id)}">Add to cart</button>
+    <button class="btn" data-o="${esc(p.id)}">Order Now</button></div></div>`;
 function cardClicks(e) {
   const a = e.target.closest('[data-a]'); if (a) return addToCart(a.dataset.a);
   const o = e.target.closest('[data-o]'); if (o) { addToCart(o.dataset.o, 1, true); location.hash = '#/checkout'; }
@@ -82,13 +112,15 @@ function home() {
   const hasOffer = S.products.some(p => p.old_price);
   const tiles = [['', 'All', 'all'], ...S.cats.map(c => [c.id, c.name, iconFor(c.name)]), ...(hasOffer ? [['__offer', 'Offer', 'tag']] : [])];
   root.innerHTML = `${slidesHtml()}
-  <div class="sh-cats" id="cats">${tiles.map(([id, name, ic]) => `<button class="sh-cat-t ${S.cat === id ? 'on' : ''}" data-c="${esc(id)}"><span class="ci">${svg(ic, 24)}</span><span>${esc(name)}</span></button>`).join('')}</div>
-  <div class="sh-tools"><input class="sh-search" id="q" type="search" placeholder="Search products…" value="${esc(S.q)}"></div><div id="grid"></div>`;
+  <div class="sh-cats" id="cats">${tiles.map(([id, name, ic]) => `<button class="sh-cat-t ${S.cat === id ? 'on' : ''}" data-c="${esc(id)}"><span class="ci">${catPhoto(id) ? `<img src="${esc(catPhoto(id))}" alt="" loading="lazy" onerror="this.replaceWith(document.createTextNode(''))">` : svg(ic, 24)}</span><span>${esc(name)}</span></button>`).join('')}</div>
+  <div class="sh-tools"><input class="sh-search" id="q" type="search" placeholder="Search products…" value="${esc(S.q)}"></div>${bestHtml()}<div id="grid"></div>`;
   const draw = () => {
     const l = S.products.filter(p => (!S.cat || (S.cat === '__offer' ? p.old_price : p.category_id === S.cat)) && (!S.q || (p.name + ' ' + (p.category_name || '')).toLowerCase().includes(S.q.toLowerCase())));
-    $('#grid').innerHTML = l.length ? `<div class="sh-grid">${l.map(cardHtml).join('')}</div>` : `<p class="sh-empty">${S.products.length ? 'No products match your search.' : 'Our online catalog is being prepared. Please call 01997905850 to order.'}</p>`;
+    const grouped = !S.cat && !S.q, secs = [];
+    if (grouped) l.forEach(p => { const k = p.category_name || 'Other', g = secs.find(x => x[0] === k); g ? g[1].push(p) : secs.push([k, [p]]); });
+    $('#grid').innerHTML = l.length ? (grouped ? secs.map(([k, ps]) => `<h3 class="sh-sec">${esc(k)}</h3><div class="sh-grid">${ps.map(cardHtml).join('')}</div>`).join('') : `<div class="sh-grid">${l.map(cardHtml).join('')}</div>`) : `<p class="sh-empty">${S.products.length ? 'No products match your search.' : 'Our online catalog is being prepared. Please call 01997905850 to order.'}</p>`;
   };
-  draw(); startSlides();
+  draw(); startSlides(); startBest();
   $('#q').oninput = e => { S.q = e.target.value; draw(); };
   $('#cats').onclick = e => { const b = e.target.closest('[data-c]'); if (!b) return; S.cat = b.dataset.c; home(); };
   root.onclick = cardClicks;
@@ -104,9 +136,9 @@ function productPage(id) {
     <div class="pp-top"><div class="pp-media">${p.image_url ? `<div class="ppwrap">${discBadge(p)}<img class="ppimg" src="${esc(p.image_url)}" alt="${esc(p.name)}" onerror="this.remove()"></div>` : '<div class="sh-img" style="aspect-ratio:16/9;cursor:default">No image</div>'}</div>
     <div class="pp-info">${p.category_name ? `<span class="pp-cat">${esc(p.category_name)}</span>` : ''}<h1 class="pp-title">${esc(p.name)}</h1>
       <div class="pp-price">${priceHtml(p)} <small>/ ${esc(p.unit)}</small></div>
-      <div class="pp-stock ${p.in_stock ? 'in' : 'out'}">${p.in_stock ? '● In stock' : '● Out of stock'}</div>
+      ${stockHtml(p, 'pp-stock')}
       <div class="pp-qty"><span>Quantity</span><div class="qty"><button id="qm">−</button><span id="qv">1</span><button id="qp">+</button></div></div>
-      <div class="pp-cta"><button class="btn ghost block" id="pa" ${p.in_stock ? '' : 'disabled'}>Add to cart</button><button class="btn block" id="po" ${p.in_stock ? '' : 'disabled'}>Order Now</button></div></div></div>
+      <div class="pp-cta"><button class="btn ghost block" id="pa">Add to cart</button><button class="btn block" id="po">Order Now</button></div></div></div>
     ${p.description ? `<section class="pp-sec"><h3>Product highlights</h3>${hl(p.description)}</section>` : ''}
     ${(p.feature_images || []).length ? `<section class="pp-sec"><h3>Features</h3><div class="feat">${p.feature_images.map(u => `<img src="${esc(u)}" alt="${esc(p.name)} feature" loading="lazy" decoding="async" onerror="this.remove()">`).join('')}</div></section>` : ''}</div>
     ${rel.length ? `<section class="pp-rel"><h2 class="pp-rel-h">Related products</h2><div class="sh-grid">${rel.map(cardHtml).join('')}</div></section>` : ''}`;
@@ -124,7 +156,7 @@ function cart() {
     <div class="nm">${esc(p.name)}<small>${money(p.price)} each</small></div>
     <div><div class="qty"><button data-m="${esc(p.id)}">−</button><span>${q}</span><button data-p="${esc(p.id)}">+</button></div><div style="text-align:right;font-weight:700;margin-top:4px">${money(q * p.price)}</div></div></div>`).join('')}
     <div class="tot"><span>Total</span><span>${money(cartTotal())}</span></div>
-    <div class="hint">Pay in cash when your order is delivered. Delivery arrangements are confirmed by phone.</div>
+    <div class="hint">Product price: cash on delivery. Delivery charge: confirmed by phone and paid in advance (see Checkout).</div>
     <a class="btn block" style="display:flex;align-items:center;justify-content:center;text-decoration:none" href="#/checkout">Checkout</a></div>`;
   root.onclick = e => {
     const m = e.target.closest('[data-m]'), pl = e.target.closest('[data-p]');
@@ -145,8 +177,9 @@ function checkout() {
     <label>Notes (optional)<input name="notes" maxlength="300"></label>
     <div class="hp" aria-hidden="true"><label>Website<input name="website" tabindex="-1" autocomplete="off"></label></div>
     <div class="box" style="background:#f5f8f3;margin:12px 0">${items.map(({ p, q }) => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:14px;margin:4px 0"><span>${esc(p.name)} × ${q}</span><b>${money(q * p.price)}</b></div>`).join('')}
-      <div class="tot" style="margin-bottom:0"><span>Total (cash on delivery)</span><span>${money(cartTotal())}</span></div></div>
-    <div class="hint">Payment: <b>cash on delivery</b>. We will call to confirm your order before shipping.</div>
+      <div class="tot" style="margin-bottom:0"><span>Product total (pay on delivery)</span><span>${money(cartTotal())}</span></div></div>
+    <div class="box dcbox"><h3 class="sh-sub">Delivery Charge</h3><div class="dc-row"><span>Delivery charge</span><b>Will be told by phone</b></div><p class="dc-bn">${DC_NOTICE}</p></div>
+    <div class="box pmbox"><h3 class="sh-sub">Payment method</h3><div class="pm"><b>Cash on Delivery (COD)</b><span>পণ্যের মূল্য পণ্য হাতে পাওয়ার সময় পরিশোধ করতে হবে।</span></div></div>
     <button class="btn block" id="go">Place order</button></form></div>`;
   $('#cf').onsubmit = async e => {
     e.preventDefault(); const b = $('#go'); b.disabled = true; b.textContent = 'Placing order…';
@@ -163,8 +196,9 @@ function checkout() {
 }
 
 function done(o, mobile) {
-  root.innerHTML = `<h2 class="sh-h">Thank you!</h2><div class="ok"><b>Your order has been received.</b><br>Order number: <b style="font-size:20px">${esc(o.order_ref)}</b><br>Total to pay on delivery: <b>${money(o.total)}</b></div>
-    <div class="box">We will call you on <b>${esc(mobile)}</b> to confirm. Keep your order number — with your mobile number you can <a href="#/track">track your order</a> any time.</div>
+  root.innerHTML = `<h2 class="sh-h">Thank you!</h2><div class="ok"><b>We have received your order request.</b> Status: <b>Pending Confirmation</b><br>Order number: <b style="font-size:20px">${esc(o.order_ref)}</b><br>Product total to pay on delivery: <b>${money(o.total)}</b></div>
+    <div class="box dcbox"><h3 class="sh-sub">Delivery Charge</h3><p class="dc-bn">${DC_NOTICE}</p></div>
+    <div class="box">We will call you on <b>${esc(mobile)}</b>. Keep your order number — with your mobile number you can <a href="#/track">track your order</a> any time.</div>
     <a class="btn" style="display:inline-flex;align-items:center;text-decoration:none" href="#/">Continue shopping</a>`;
   window.scrollTo(0, 0);
 }
@@ -188,7 +222,8 @@ function orderHtml(o) {
     ${bad ? '' : `<div class="steps">${FLOW.map((_, i) => `<span class="${i <= idx ? 'on' : ''}"></span>`).join('')}</div>`}
     <small style="color:var(--mut)">Placed ${esc(new Date(o.placed).toLocaleString('en-GB'))}</small>
     ${(o.items || []).map(i => `<div style="display:flex;justify-content:space-between;gap:8px;font-size:14px;margin:5px 0"><span>${esc(i.name)} × ${esc(i.qty)}</span><b>${money(i.qty * i.price)}</b></div>`).join('')}
-    <div class="tot"><span>Total (cash on delivery)</span><span>${money(o.total)}</span></div></div>`;
+    <div class="tot"><span>Product total (pay on delivery)</span><span>${money(o.total)}</span></div>
+    ${o.delivery_charge_verified ? `<div class="hint ok2">Delivery charge paid in advance and verified: <b>${money(o.delivery_charge)}</b></div>` : (['Cancelled', 'Returned', 'Failed'].includes(o.status) ? '' : `<div class="hint"><b>Delivery charge not yet verified.</b> ${DC_NOTICE}</div>`)}</div>`;
 }
 
 /* ---------- account ---------- */
@@ -234,7 +269,7 @@ function recovery() {
 function route() {
   const h = (location.hash || '#/').replace(/^#\/?/, '').split('?')[0];
   document.querySelectorAll('.sh-nav a').forEach(a => a.classList.remove('on'));
-  window.scrollTo(0, 0); root.onclick = null; clearInterval(slideTimer);
+  window.scrollTo(0, 0); root.onclick = null; clearInterval(slideTimer); cancelAnimationFrame(bestRaf);
   if (h.startsWith('p/')) return productPage(h.slice(2));
   if (h === 'cart') return cart();
   if (h === 'checkout') return checkout();

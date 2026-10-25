@@ -41,17 +41,20 @@ export function initFin(h, ops) {
           <button class="btn go" style="width:100%">Create order</button>`)}
         </form></div>`;
 
+    // a website order cannot be Confirmed until its advance delivery charge is verified (the database enforces this too)
+    const nextOf = o => NEXT[o.status].filter(s => !(web && o.status === 'New' && s === 'Confirmed' && !o.delivery_charge_verified));
     const rowsHtml = orders.map(o => {
       const codPending = o.status === 'Delivered' ? Number(o.cod_amount) - Number(o.cod_received) : 0;
       const done = FINISHED.includes(o.status) && (Number(o.courier_advance) === 0 || o.advance_settled) && (o.status !== 'Delivered' || codPending <= 0);
       return `<tr><td><b>${esc(o.order_ref)}</b><br><small>${esc(String(o.created_at).slice(0, 10))}</small></td>
       <td>${esc(o.customer_name)}<br><small>${esc(o.mobile || '')}</small></td>
-      <td><span class="badge ${['Returned', 'Failed', 'Cancelled'].includes(o.status) ? 'low' : ''}">${esc(o.status)}</span>${done ? '<br><small>Settlement completed</small>' : ''}</td>
+      <td><span class="badge ${['Returned', 'Failed', 'Cancelled'].includes(o.status) ? 'low' : ''}">${esc(web && o.status === 'New' ? 'Pending Confirmation' : o.status)}</span>${web && o.status === 'New' ? `<br><small>${o.delivery_charge_verified ? 'Delivery charge verified' : '<b>Delivery charge not verified</b>'}</small>` : ''}${done ? '<br><small>Settlement completed</small>' : ''}</td>
       <td>${money(o.product_total)}</td><td>${money(o.courier_advance)}${Number(o.courier_advance) > 0 ? `<br><small>${o.advance_settled ? 'Settled to courier' : 'Pending settlement'}</small>` : ''}</td>
       <td>${o.status === 'Delivered' ? money(codPending) : '—'}</td>
       <td style="white-space:normal;min-width:190px">
         <button class="btn sm ghost" data-a="inv" data-id="${o.id}">Invoice</button>
-        ${canStatus && NEXT[o.status].length ? `<button class="btn sm" data-a="st" data-id="${o.id}">Update status</button>` : ''}
+        ${web && o.status === 'New' && !o.delivery_charge_verified && canSettle ? `<button class="btn sm go" data-a="dcv" data-id="${o.id}">Verify delivery charge</button>` : ''}
+        ${canStatus && nextOf(o).length ? `<button class="btn sm" data-a="st" data-id="${o.id}">Update status</button>` : ''}
         ${canSettle && Number(o.courier_advance) > 0 && !o.advance_settled && FINISHED.includes(o.status) ? `<button class="btn sm ghost" data-a="adv" data-id="${o.id}">Settle advance</button>` : ''}
         ${canSettle && o.status === 'Delivered' && codPending > 0 ? `<button class="btn sm ghost" data-a="cod" data-id="${o.id}">Receive COD</button>` : ''}
         ${canSettle && Number(o.cod_received) > 0 ? `<button class="btn sm ghost" data-a="rcod" data-id="${o.id}">Reverse COD</button>` : ''}
@@ -60,9 +63,9 @@ export function initFin(h, ops) {
     });
 
     el.innerHTML = `<div class="bar"><h2>${web ? 'Website Orders' : 'Facebook Orders'}</h2></div>
-    ${web ? '<div class="hint"><b>Orders placed by customers on your website</b> (cash on delivery). Call the customer to confirm, then update the status. Stock leaves the warehouse when an order is <b>Shipped</b> and the sale is recognised when it is <b>Delivered</b>; if it is <b>Returned</b> or <b>Failed</b> the stock returns automatically.</div>' : `<div class="hint"><b>How it works:</b> COD equals the product total only. Stock leaves the warehouse when an order is <b>Shipped</b>; revenue is recognised when it is <b>Delivered</b>. If an order is <b>Returned</b> or <b>Failed</b>, the stock returns automatically. The courier advance never affects profit; it is settled to the courier in every outcome and is not refunded to the customer.</div>`}
+    ${web ? '<div class="hint"><b>Website orders (product price = cash on delivery).</b> A new order is <b>Pending Confirmation</b>. Call the customer, tell them the delivery charge and collect it in advance, then press <b>Verify delivery charge</b>. Only after that can you set the order to <b>Confirmed</b>. Stock leaves the warehouse when an order is <b>Shipped</b>; the sale is recognised when it is <b>Delivered</b>; if it is <b>Returned</b> or <b>Failed</b> the stock returns automatically. The delivery charge you collected is held for the courier (it is not income) and is paid on with <b>Settle advance</b>.</div>' : `<div class="hint"><b>How it works:</b> COD equals the product total only. Stock leaves the warehouse when an order is <b>Shipped</b>; revenue is recognised when it is <b>Delivered</b>. If an order is <b>Returned</b> or <b>Failed</b>, the stock returns automatically. The courier advance never affects profit; it is settled to the courier in every outcome and is not refunded to the customer.</div>`}
     ${form}<h3 class="sec">Orders</h3>
-    ${table(['Order', 'Customer', 'Status', 'Product total (COD)', 'Courier advance', 'COD pending', ''], rowsHtml, web ? 'No website orders yet.' : 'No Facebook orders yet.')}`;
+    ${table(['Order', 'Customer', 'Status', 'Product total (COD)', web ? 'Delivery charge (advance)' : 'Courier advance', 'COD pending', ''], rowsHtml, web ? 'No website orders yet.' : 'No Facebook orders yet.')}`;
 
     el.onclick = async e => {
       const b = e.target.closest('[data-a]'); if (!b) return;
@@ -70,9 +73,12 @@ export function initFin(h, ops) {
       try {
         if (b.dataset.a === 'inv') await ops.openFbInvoice(o.id);
         if (b.dataset.a === 'st') modal('Update status — ' + o.order_ref,
-          `<label>New status<select name="status">${NEXT[o.status].map(s => `<option>${s}</option>`).join('')}</select></label><label>Note (optional)<input name="note"></label>
+          `<label>New status<select name="status">${nextOf(o).map(s => `<option>${s}</option>`).join('')}</select></label><label>Note (optional)<input name="note"></label>
            <p class="mut">Shipped: stock leaves the warehouse. Delivered: revenue is recognised. Returned / Failed: stock returns to the warehouse.</p>`,
           async fd => { const { error } = await sb.rpc('fb_set_status', { p_order: o.id, p_status: fd.get('status'), p_note: fd.get('note') || null }); if (error) throw error; toast('Order status updated.'); viewFacebook(el, channel); });
+        if (b.dataset.a === 'dcv') modal('Verify delivery charge — ' + o.order_ref,
+          `<p>Call the customer, tell them the delivery charge, and collect it <b>in advance</b>. Record it here only after the money has really been received. The order can be confirmed afterwards. The product price (<b>${money(o.product_total)}</b>) is still collected on delivery.</p>${fld('amount', 'Delivery charge received (৳)', 0, 'required')}<label>Received via<select name="account">${opts(acc)}</select></label><label>Date<input name="date" type="date" value="${today()}"></label>`,
+          async fd => { if (!(N(fd.get('amount')) > 0)) throw new Error('Enter the delivery charge amount you received.'); const { error } = await sb.rpc('web_verify_delivery_charge', { p_order: o.id, p_amount: N(fd.get('amount')), p_account: fd.get('account'), p_date: fd.get('date') }); if (error) throw error; toast('Delivery charge verified. You can now confirm the order.'); viewFacebook(el, channel); });
         if (b.dataset.a === 'adv') modal('Settle courier advance — ' + o.order_ref,
           `<p>Pay <b>${money(o.courier_advance)}</b> to the courier. This has no effect on profit.</p><label>Paid from<select name="account">${opts(acc)}</select></label><label>Date<input name="date" type="date" value="${today()}"></label>`,
           async fd => { const { error } = await sb.rpc('fb_settle_advance', { p_order: o.id, p_account: fd.get('account'), p_date: fd.get('date') }); if (error) throw error; toast('Courier advance settled.'); viewFacebook(el, channel); });
@@ -391,6 +397,16 @@ export function initFin(h, ops) {
         load: async () => { const { data, error } = await sb.from('partners').select('*').order('name'); if (error) throw error; return data; }
         });
       },
+      shop: async () => {
+        const { data } = await sb.from('settings').select('value').eq('key', 'shop').maybeSingle();
+        const on = !!(data?.value && data.value.show_stock);
+        $('#sec', el).innerHTML = `<div class="bar"><h2>Website options</h2></div><p class="mut">Customers can always add products to the cart and order them, whether or not there is stock. This option only controls whether the website shows “In stock / Out of stock”.</p><form id="sf" class="box"><label style="display:flex;gap:10px;align-items:center"><input type="checkbox" name="show_stock" ${on ? 'checked' : ''} style="width:auto"> Show product stock availability (In stock / Out of stock) on the website</label><button class="btn" style="width:100%;margin-top:10px">Save</button></form>`;
+        $('#sf', el).onsubmit = async e => {
+          e.preventDefault(); const value = { show_stock: !!new FormData(e.target).get('show_stock') };
+          const { error } = await sb.from('settings').upsert({ key: 'shop', value }); if (error) return toast(errMsg(error), 'err');
+          toast('Website options saved.');
+        };
+      },
       business: async () => {
         const { data } = await sb.from('settings').select('value').eq('key', 'business').maybeSingle();
         const b = data?.value || {};
@@ -404,7 +420,7 @@ export function initFin(h, ops) {
         };
       }
     };
-    const T = [['business', 'Business info'], ['couriers', 'Couriers'], ['banners', 'Website banners'], ['productcats', 'Product categories'], ['categories', 'Expense categories'], ['accounts', 'Payment accounts'], ['partners', 'Partners']];
+    const T = [['business', 'Business info'], ['couriers', 'Couriers'], ['banners', 'Website banners'], ['shop', 'Website options'], ['productcats', 'Product categories'], ['categories', 'Expense categories'], ['accounts', 'Payment accounts'], ['partners', 'Partners']];
     el.innerHTML = `<div class="bar"><h2>Settings</h2></div><div class="btnrow">${T.map(([k, l]) => `<button class="btn ghost sm" data-s="${k}">${l}</button>`).join('')}</div><div id="sec">${LOADING}</div>`;
     const open = k => { el.querySelectorAll('[data-s]').forEach(b => b.classList.toggle('on', b.dataset.s === k)); SECTIONS[k](); };
     el.querySelectorAll('[data-s]').forEach(b => b.onclick = () => open(b.dataset.s));

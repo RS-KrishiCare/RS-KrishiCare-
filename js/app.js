@@ -345,6 +345,7 @@ async function viewProducts(el) {
     { key: 'web_price', label: 'Website price (৳)', type: 'number', nullZero: true },
     { key: 'web_old_price', label: 'Regular price before discount (optional — lists the product under "Offer")', type: 'number', nullZero: true },
     { key: 'web_visible', label: 'Show this product on the public website', type: 'check', def: false },
+    { key: 'web_best', label: 'Show in the “Best Products” slider on the website', type: 'check', def: false },
     { key: 'is_active', label: 'Active', type: 'check' }
   ];
   const cols = [
