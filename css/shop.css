@@ -119,3 +119,11 @@ label{display:block;margin:10px 0;font-size:13.5px;color:var(--mut)}label input,
 .dc-bn{margin:0;font-size:14px;line-height:1.7;color:#5b4300}
 .pmbox .pm{display:flex;flex-direction:column;gap:2px;font-size:14px;border:1.5px solid var(--g);border-radius:10px;padding:10px 12px;background:#f3f9f1}.pmbox .pm span{color:var(--mut)}
 .hint.ok2{background:#e8f3e6;color:var(--g2)}
+
+/* realistic category illustrations */
+.sh-cat-t .ci{width:60px;height:60px;background:#fff}.sh-cat-t .ci svg{display:block}
+.sh-cat-t.on .ci{background:#e8f3e6;border-color:var(--g2);color:inherit;box-shadow:0 0 0 3px #2e7d3230}
+/* product page: feature photos as small thumbnails under the main photo */
+.pp-thumbs{display:flex;gap:8px;overflow-x:auto;padding:10px 2px 2px;scrollbar-width:thin}
+.pp-thumbs .th{flex:none;width:64px;height:64px;padding:0;border:2px solid var(--bd);border-radius:10px;background:#fff;overflow:hidden;cursor:pointer}
+.pp-thumbs .th.on{border-color:var(--g)}.pp-thumbs .th img{display:block;width:100%;height:100%;object-fit:cover}
