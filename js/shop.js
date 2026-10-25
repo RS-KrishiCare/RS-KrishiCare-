@@ -81,15 +81,21 @@ function slidesHtml() {
   const list = S.banners.length ? S.banners : [{ def: true }];
   const body = list.map(b => b.def
     ? `<div class="sl sl-def"><div class="slt"><h2>Quality agricultural products,<br>trusted advice, prosperous farmers</h2><p>Sprayers, spare parts, seeds, fertilizer and gardening tools — order online and pay cash on delivery.</p><div class="bn">মানসম্মত কৃষিপণ্য, সঠিক পরামর্শ, সমৃদ্ধ কৃষক</div></div></div>`
-    : `<a class="sl" href="${esc(safeLink(b.link_url))}" style="background-image:url('${esc(b.image_url)}')">${b.title || b.subtitle ? `<div class="slt shade">${b.title ? `<h2>${esc(b.title)}</h2>` : ''}${b.subtitle ? `<p>${esc(b.subtitle)}</p>` : ''}</div>` : ''}</a>`).join('');
+    : `<a class="sl sl-img" href="${esc(safeLink(b.link_url))}"><img src="${esc(b.image_url)}" alt="${esc(b.title || 'Banner')}" draggable="false">${b.title || b.subtitle ? `<div class="slt shade">${b.title ? `<h2>${esc(b.title)}</h2>` : ''}${b.subtitle ? `<p>${esc(b.subtitle)}</p>` : ''}</div>` : ''}</a>`).join('');
   return `<div class="sh-slider"><div class="sh-slides" id="slides">${body}</div>${list.length > 1 ? `<div class="sh-dots" id="dots">${list.map((_, i) => `<i class="${i ? '' : 'on'}"></i>`).join('')}</div>` : ''}</div>`;
 }
 function startSlides() {
   clearInterval(slideTimer); const c = $('#slides'); if (!c) return;
-  const n = c.children.length; if (n < 2) return;
-  const dots = [...document.querySelectorAll('#dots i')]; let hold = false, rel = null;
+  const n = c.children.length;
   const idx = () => Math.round(c.scrollLeft / c.clientWidth);
-  c.addEventListener('scroll', () => dots.forEach((d, i) => d.classList.toggle('on', i === idx())), { passive: true });
+  /* the whole banner image is always shown (never cropped): the box takes the height of the slide on screen */
+  const fit = () => { const s = c.children[Math.min(idx(), n - 1)]; if (s && s.offsetHeight) c.style.height = s.offsetHeight + 'px'; };
+  c.querySelectorAll('img').forEach(im => { if (!im.complete) im.addEventListener('load', fit, { once: true }); });
+  if (!c.dataset.fit) { c.dataset.fit = 1; window.addEventListener('resize', () => { const k = $('#slides'); if (k) { k.style.height = ''; requestAnimationFrame(() => { const s = k.children[Math.round(k.scrollLeft / k.clientWidth)]; if (s) k.style.height = s.offsetHeight + 'px'; }); } }); }
+  fit();
+  if (n < 2) return;
+  const dots = [...document.querySelectorAll('#dots i')]; let hold = false, rel = null;
+  c.addEventListener('scroll', () => { dots.forEach((d, i) => d.classList.toggle('on', i === idx())); fit(); }, { passive: true });
   ['touchstart', 'mousedown'].forEach(ev => c.addEventListener(ev, () => { hold = true; clearTimeout(rel); }, { passive: true }));
   ['touchend', 'mouseup', 'mouseleave'].forEach(ev => c.addEventListener(ev, () => { clearTimeout(rel); rel = setTimeout(() => { hold = false; }, 4000); }, { passive: true }));
   slideTimer = setInterval(() => { if (hold || document.hidden || !document.body.contains(c)) return; c.scrollTo({ left: ((idx() + 1) % n) * c.clientWidth, behavior: 'smooth' }); }, 5000);
