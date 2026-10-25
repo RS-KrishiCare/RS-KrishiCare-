@@ -43,6 +43,10 @@ label{display:block;margin:10px 0;font-size:13.5px;color:var(--mut)}label input,
 @media(max-width:380px){.sh-nav a{padding:8px 6px;font-size:12.5px}.sh-brand b{font-size:14.5px}}
 
 /* banner carousel */
+.sh-slides{align-items:flex-start;transition:height .25s ease}
+.sl.sl-img{min-height:0;aspect-ratio:auto;background:none;line-height:0}
+.sl.sl-img img{display:block;width:100%;height:auto;-webkit-user-drag:none;user-select:none}
+.sl.sl-img .slt{line-height:1.25}
 .sh-slider{position:relative;border-radius:14px;overflow:hidden;background:#1b5e20}
 .sh-slides{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;scrollbar-width:none;-webkit-overflow-scrolling:touch}.sh-slides::-webkit-scrollbar{display:none}
 .sl{flex:0 0 100%;scroll-snap-align:start;display:block;min-height:170px;aspect-ratio:16/7;background-size:cover;background-position:center;position:relative;color:#fff;text-decoration:none}
