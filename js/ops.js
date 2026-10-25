@@ -14,10 +14,11 @@ export function initOps(h) {
       sb.from('suppliers').select('id,name,is_active').order('name'),
       sb.from('products').select('id,name,unit,units_per_carton,category_id').eq('is_active', true).order('name'),
       sb.from('v_payment_methods').select('id,name').order('name'),
-      sb.from('purchases').select('id,purchase_no,purchase_date,product_total,landed_total,suppliers(name)').order('purchase_date', { ascending: false }).limit(50),
+      sb.from('purchases').select('id,purchase_no,purchase_date,product_total,landed_total,warehouse_id,suppliers(name)').order('purchase_date', { ascending: false }).limit(50),
       seeDue ? sb.from('v_supplier_due').select('*').gt('due', 0).order('purchase_date') : Promise.resolve({ data: [] })
     ]);
     chk(rs);
+    const wc = await h.wh.get(), wnm = h.wh.nameMap(wc);
     const [sup, prod, acc, pur, due] = rs.map(r => r.data);
     const sname = Object.fromEntries(sup.map(s => [s.id, s.name]));
     const activeSup = sup.filter(s => s.is_active);
@@ -29,7 +30,7 @@ export function initOps(h) {
         : `<div class="box stack"><h3 style="margin:0 0 4px" id="ptitle">New purchase</h3><div id="pebar"></div>
         <form id="pf">
           ${fsec(1, 'Supplier & date', `<label>Supplier<select name="supplier_id" class="ss" required><option value="">— Select supplier —</option>${opts(activeSup)}</select></label>
-            <div class="row2"><label>Purchase date<input name="purchase_date" type="date" value="${today()}" required></label><label>Reference<input name="reference"></label></div>`)}
+            <div class="row2"><label>Purchase date<input name="purchase_date" type="date" value="${today()}" required></label><label>Reference<input name="reference"></label></div>${h.wh.select(wc, 'Warehouse (where this stock arrives)')}`)}
           ${fsec(2, 'Inbound costs', `<div class="row2">${fld('transport_cost', 'Transport agency')}${fld('loading_cost', 'Loading')}</div>
             <div class="row2">${fld('van_cost', 'Van / godown inbound')}${fld('other_cost', 'Other inbound')}</div>`, 'Enter once for the whole purchase — shared equally per carton')}
           ${fsec(3, 'Product lines', `<div id="lines"></div><button type="button" class="btn ghost sm" id="addln">+ Add another product</button>`)}
@@ -49,8 +50,8 @@ export function initOps(h) {
     <div class="hint">Landing cost = product price + transport + loading + van/godown inbound cost. Enter the day’s inbound costs once (in any field below) — the system shares the total equally per carton across all products in this purchase. Cartons are calculated from each product’s “pieces per carton”. Stock is kept and sold in pieces. Delivery to retailers is a sales expense and is not part of landing cost.</div>
     ${form}${dueHtml}
     <h3 class="sec">Recent purchases</h3>${pur.length
-        ? `<div class="tablewrap"><table><thead><tr><th>No.</th><th>Date</th><th>Supplier</th><th>Product total</th><th>Landed total</th><th></th></tr></thead><tbody>${pur.map(p =>
-          `<tr><td>${esc(p.purchase_no)}</td><td>${esc(p.purchase_date)}</td><td>${esc(p.suppliers?.name || '')}</td><td>${money(p.product_total)}</td><td>${money(p.landed_total)}</td><td style="white-space:normal;min-width:170px">${canCreate ? `<button class="btn sm" data-edit="${p.id}">Edit</button> ` : ''}<button class="btn sm ghost" data-det="${p.id}">Details</button>${has('owner') ? ` <button class="btn sm ghost" data-void="${p.id}">Cancel</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`
+        ? `<div class="tablewrap"><table><thead><tr><th>No.</th><th>Date</th><th>Supplier</th><th>Product total</th><th>Landed total</th>${wc.on ? '<th>Warehouse</th>' : ''}<th></th></tr></thead><tbody>${pur.map(p =>
+          `<tr><td>${esc(p.purchase_no)}</td><td>${esc(p.purchase_date)}</td><td>${esc(p.suppliers?.name || '')}</td><td>${money(p.product_total)}</td><td>${money(p.landed_total)}</td>${wc.on ? `<td>${esc(wnm[p.warehouse_id] || 'Before tracking')}</td>` : ''}<td style="white-space:normal;min-width:170px">${canCreate ? `<button class="btn sm" data-edit="${p.id}">Edit</button> ` : ''}<button class="btn sm ghost" data-det="${p.id}">Details</button>${has('owner') ? ` <button class="btn sm ghost" data-void="${p.id}">Cancel</button>` : ''}</td></tr>`).join('')}</tbody></table></div>`
         : '<p class="empty">No purchases recorded yet.</p>'}`;
 
     el.querySelectorAll('[data-pay]').forEach(b => b.onclick = () => {
@@ -120,6 +121,7 @@ export function initOps(h) {
       try {
         const { data: d, error } = await sb.rpc('get_purchase_for_edit', { p_purchase: id }); if (error) throw error;
         editing = id;
+        const wsel = pf.elements.warehouse_id; if (wsel) { wsel.disabled = true; wsel.required = false; wsel.closest('label').style.display = 'none'; }   // the warehouse of a saved purchase cannot change
         setSel(pf.elements.supplier_id, d.supplier_id);
         pf.elements.purchase_date.value = d.purchase_date; pf.elements.reference.value = d.reference || '';
         ['transport_cost', 'loading_cost', 'van_cost', 'other_cost'].forEach(k => pf.elements[k].value = N(d[k]));
@@ -150,6 +152,7 @@ export function initOps(h) {
         const items = [...box.querySelectorAll('.ln')].map(r => ({ product_id: r.querySelector('.pid').value, qty: N(r.querySelector('.q').value), unit_price: N(r.querySelector('.p').value), cartons: N(r.querySelector('.c').value) }));
         if (items.some(i => !i.product_id)) throw new Error('Select a product for every line (or remove the empty line).');
         const p = { supplier_id: fd.get('supplier_id'), purchase_date: fd.get('purchase_date'), reference: fd.get('reference'), transport_cost: N(fd.get('transport_cost')), loading_cost: N(fd.get('loading_cost')), van_cost: N(fd.get('van_cost')), other_cost: N(fd.get('other_cost')), paid_amount: N(fd.get('paid_amount')), account_id: fd.get('account_id') || '', notes: fd.get('notes'), items };
+        if (!editing && wc.on) p.warehouse_id = fd.get('warehouse_id');
         const { error } = editing ? await sb.rpc('update_purchase', { p_purchase: editing, p }) : await sb.rpc('create_purchase', { p });
         if (error) throw error;
         toast(editing ? 'Purchase updated.' : 'Purchase saved. Stock has been updated.'); await viewPurchases(el);
@@ -166,6 +169,9 @@ export function initOps(h) {
       sb.from('v_my_sales').select('*').order('sale_date', { ascending: false }).limit(50)
     ]);
     chk(rs);
+    const wc = await h.wh.get();
+    const whq = {};
+    if (wc.on) { const { data: wr } = await sb.from('v_wh_stock').select('product_id,warehouse_id,qty').limit(20000); (wr || []).forEach(r => { (whq[r.product_id] = whq[r.product_id] || {})[r.warehouse_id] = N(r.qty); }); }
     const [ret, prod, acc, sales] = rs.map(r => r.data);
     const rname = Object.fromEntries(ret.map(r => [r.id, r.name]));
     const activeRet = ret.filter(r => r.is_active);
@@ -176,6 +182,7 @@ export function initOps(h) {
       : `<div class="box stack"><h3 style="margin:0 0 4px" id="stitle">New retailer sale</h3><div id="sebar"></div><form id="sf">
         ${fsec(1, 'Customer & order', `<label>Retailer<select name="retailer_id" class="ss" required><option value="">— Select retailer —</option>${opts(activeRet)}</select></label>
           <div class="row2"><label>Sale date<input name="sale_date" type="date" value="${today()}" required></label><label>Order reference<input name="order_ref"></label></div>
+          ${h.wh.select(wc, 'Warehouse (stock is taken from here)')}
           <label>Delivery address <small>(optional — defaults to the retailer’s address)</small><input name="delivery_address"></label>`)}
         ${fsec(2, 'Products', `<div id="lines"></div><button type="button" class="btn ghost sm" id="addln">+ Add another product</button>`)}
         ${fsec(3, 'Discount & charges', `<div class="row2">${fld('discount', 'Discount (total)')}${fld('delivery_charge', 'Delivery charge billed to customer')}</div>`)}
@@ -199,9 +206,10 @@ export function initOps(h) {
 
     const sf = $('#sf', el); if (!sf) return;
     const box = $('#lines', el);
-    let rp = {}, own = {};
+    let rp = {}, own = {}, editing = null, converting = null;
     const priceFor = pid => rp[pid] ?? pmap[pid]?.sell_price ?? 0;
-    const saleOpt = p => `<option value="${p.id}">${esc(p.name)} — in stock ${num(p.qty_on_hand)} ${esc(p.unit)}</option>`;
+    const stockTxt = p => wc.on ? wc.list.map(w => `${esc(w.name)} ${num((whq[p.id] || {})[w.id] || 0)}`).join(' · ') : 'in stock ' + num(p.qty_on_hand);
+    const saleOpt = p => `<option value="${p.id}">${esc(p.name)} — ${stockTxt(p)} ${esc(p.unit)}</option>`;
     const lineHtml = () => `<div class="ln"><label>Product<select class="pid ss ss-hl"><option value="">— Select product —</option>${prod.map(saleOpt).join('')}</select></label>
       <div class="row2">${numIn('q', 'Quantity', 1)}<label>Unit price<input class="p" data-auto="1" type="number" step="any" min="0" inputmode="decimal" value="${priceFor('')}"></label></div>
       <div class="row2">${numIn('ld', 'Line discount', 0)}<button type="button" class="btn ghost sm rm" style="align-self:end;margin-bottom:10px">✕ Remove</button></div></div>`;
@@ -210,7 +218,9 @@ export function initOps(h) {
       const ls = [...box.querySelectorAll('.ln')].map(r => ({ pid: r.querySelector('.pid').value, q: N(r.querySelector('.q').value), p: N(r.querySelector('.p').value), ld: N(r.querySelector('.ld').value) }));
       const sub = ls.reduce((s, l) => s + l.q * l.p - l.ld, 0);
       const total = sub - N(sf.elements.discount.value) + N(sf.elements.delivery_charge.value), paid = N(sf.elements.paid_amount.value);
-      const over = ls.filter(l => l.pid && l.q > N(pmap[l.pid]?.qty_on_hand) + N(own[l.pid])).map(l => pmap[l.pid]?.name);
+      const swh = sf.elements.warehouse_id ? sf.elements.warehouse_id.value : '';
+      const avail = pid => wc.on ? (editing ? Infinity : N((whq[pid] || {})[swh])) : N(pmap[pid]?.qty_on_hand) + N(own[pid]);   // with warehouses on, the chosen warehouse decides
+      const over = ls.filter(l => l.pid && l.q > avail(l.pid)).map(l => pmap[l.pid]?.name);
       $('#prev', el).innerHTML = `<div class="sum">${over.length ? `<div class="err"><span>⚠ Insufficient stock: ${esc(over.join(', '))}</span></div>` : ''}
       <div><span>Subtotal</span><span>${money(sub)}</span></div><div><span>Total payable</span><b>${money(total)}</b></div>
       <div><span>Balance due after this sale</span><span>${money(Math.max(0, total - paid))}</span></div></div>`;
@@ -230,11 +240,12 @@ export function initOps(h) {
     };
     sf.elements.retailer_id.addEventListener('change', loadPrices); await loadPrices();
 
-    let editing = null, converting = null;
+
     const startEditSale = async id => {
       try {
         const { data: d, error } = await sb.rpc('get_sale_for_edit', { p_sale: id }); if (error) throw error;
         editing = { id, retailer_id: d.retailer_id };
+        const wsel = sf.elements.warehouse_id; if (wsel) { wsel.disabled = true; wsel.required = false; wsel.closest('label').style.display = 'none'; }   // the warehouse of a saved sale cannot change
         setSel(sf.elements.retailer_id, d.retailer_id); await loadPrices();
         sf.elements.sale_date.value = d.sale_date; sf.elements.order_ref.value = d.order_ref || '';
         sf.elements.delivery_address.value = d.delivery_address || '';
@@ -298,6 +309,7 @@ export function initOps(h) {
         const items = [...box.querySelectorAll('.ln')].map(r => ({ product_id: r.querySelector('.pid').value, qty: N(r.querySelector('.q').value), unit_price: N(r.querySelector('.p').value), line_discount: N(r.querySelector('.ld').value) }));
         if (items.some(i => !i.product_id)) throw new Error('Select a product for every line (or remove the empty line).');
         const p = { retailer_id: fd.get('retailer_id'), sale_date: fd.get('sale_date'), order_ref: fd.get('order_ref'), delivery_address: fd.get('delivery_address'), discount: N(fd.get('discount')), delivery_charge: N(fd.get('delivery_charge')), retailer_delivery_cost: N(fd.get('retailer_delivery_cost')), delivery_account_id: fd.get('delivery_account_id') || '', paid_amount: N(fd.get('paid_amount')), account_id: fd.get('account_id') || '', notes: fd.get('notes'), items };
+        if (!editing && wc.on) p.warehouse_id = fd.get('warehouse_id');
         if (editing) {
           if (!p.retailer_id) p.retailer_id = editing.retailer_id;
           const { error } = await sb.rpc('update_sale', { p_sale: editing.id, p }); if (error) throw error;

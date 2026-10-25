@@ -17,6 +17,7 @@ export function initFin(h, ops) {
   const FINISHED = ['Delivered', 'Returned', 'Failed', 'Cancelled'];
 
   async function viewFacebook(el, channel = 'facebook') {
+    const wc = await h.wh.get(), wnm = h.wh.nameMap(wc);
     const web = channel === 'website', canCreate = !web && has('owner', 'partner', 'salesman'), canStatus = has('owner', 'partner', 'warehouse', 'accountant'), canSettle = has('owner', 'accountant');
     const rs = await Promise.all([
       sb.from('couriers').select('id,name').eq('is_active', true).order('name'),
@@ -48,7 +49,7 @@ export function initFin(h, ops) {
       const done = FINISHED.includes(o.status) && (Number(o.courier_advance) === 0 || o.advance_settled) && (o.status !== 'Delivered' || codPending <= 0);
       return `<tr><td><b>${esc(o.order_ref)}</b><br><small>${esc(String(o.created_at).slice(0, 10))}</small></td>
       <td>${esc(o.customer_name)}<br><small>${esc(o.mobile || '')}</small></td>
-      <td><span class="badge ${['Returned', 'Failed', 'Cancelled'].includes(o.status) ? 'low' : ''}">${esc(web && o.status === 'New' ? 'Pending Confirmation' : o.status)}</span>${web && o.status === 'New' ? `<br><small>${o.delivery_charge_verified ? 'Delivery charge verified' : '<b>Delivery charge not verified</b>'}</small>` : ''}${done ? '<br><small>Settlement completed</small>' : ''}</td>
+      <td><span class="badge ${['Returned', 'Failed', 'Cancelled'].includes(o.status) ? 'low' : ''}">${esc(web && o.status === 'New' ? 'Pending Confirmation' : o.status)}</span>${web && o.status === 'New' ? `<br><small>${o.delivery_charge_verified ? 'Delivery charge verified' : '<b>Delivery charge not verified</b>'}</small>` : ''}${wc.on && o.warehouse_id ? `<br><small>Warehouse: ${esc(wnm[o.warehouse_id] || '')}</small>` : ''}${done ? '<br><small>Settlement completed</small>' : ''}</td>
       <td>${money(o.product_total)}</td><td>${money(o.courier_advance)}${Number(o.courier_advance) > 0 ? `<br><small>${o.advance_settled ? 'Settled to courier' : 'Pending settlement'}</small>` : ''}</td>
       <td>${o.status === 'Delivered' ? money(codPending) : '—'}</td>
       <td style="white-space:normal;min-width:190px">
@@ -73,9 +74,9 @@ export function initFin(h, ops) {
       try {
         if (b.dataset.a === 'inv') await ops.openFbInvoice(o.id);
         if (b.dataset.a === 'st') modal('Update status — ' + o.order_ref,
-          `<label>New status<select name="status">${nextOf(o).map(s => `<option>${s}</option>`).join('')}</select></label><label>Note (optional)<input name="note"></label>
+          `<label>New status<select name="status">${nextOf(o).map(s => `<option>${s}</option>`).join('')}</select></label>${wc.on ? `<label>Warehouse <small>(required when shipping — the stock leaves this warehouse; a returned order comes back to it)</small><select name="warehouse"><option value="">— Select warehouse —</option>${wc.list.map(w => `<option value="${w.id}" ${o.warehouse_id === w.id ? 'selected' : ''}>${esc(w.name)}</option>`).join('')}</select></label>` : ''}<label>Note (optional)<input name="note"></label>
            <p class="mut">Shipped: stock leaves the warehouse. Delivered: revenue is recognised. Returned / Failed: stock returns to the warehouse.</p>`,
-          async fd => { const { error } = await sb.rpc('fb_set_status', { p_order: o.id, p_status: fd.get('status'), p_note: fd.get('note') || null }); if (error) throw error; toast('Order status updated.'); viewFacebook(el, channel); });
+          async fd => { const st = fd.get('status'), whv = fd.get('warehouse') || null; if (wc.on && !whv && (st === 'Shipped' || (['Returned', 'Failed'].includes(st) && o.stock_deducted && !o.warehouse_id))) throw new Error('Select the warehouse.'); const { error } = await sb.rpc('fb_set_status', { p_order: o.id, p_status: st, p_note: fd.get('note') || null, ...(wc.on ? { p_warehouse: whv } : {}) }); if (error) throw error; toast('Order status updated.'); viewFacebook(el, channel); });
         if (b.dataset.a === 'dcv') modal('Verify delivery charge — ' + o.order_ref,
           `<p>Call the customer, tell them the delivery charge, and collect it <b>in advance</b>. Record it here only after the money has really been received. The order can be confirmed afterwards. The product price (<b>${money(o.product_total)}</b>) is still collected on delivery.</p>${fld('amount', 'Delivery charge received (৳)', 0, 'required')}<label>Received via<select name="account">${opts(acc)}</select></label><label>Date<input name="date" type="date" value="${today()}"></label>`,
           async fd => { if (!(N(fd.get('amount')) > 0)) throw new Error('Enter the delivery charge amount you received.'); const { error } = await sb.rpc('web_verify_delivery_charge', { p_order: o.id, p_amount: N(fd.get('amount')), p_account: fd.get('account'), p_date: fd.get('date') }); if (error) throw error; toast('Delivery charge verified. You can now confirm the order.'); viewFacebook(el, channel); });
@@ -283,10 +284,11 @@ export function initFin(h, ops) {
   const MV = { purchase_receipt: 'Purchase receipt', sale: 'Retailer sale', facebook_ship: 'Facebook shipment', facebook_return: 'Facebook return', loss: 'Damage / loss', adjustment_in: 'Stock adjustment (increase)' };
   async function viewInventory(el) {
     const canAct = has('owner', 'warehouse');
+    const wc = await h.wh.get(), wnm = h.wh.nameMap(wc);
     const rs = await Promise.all([
       sb.from('products').select('id,name,unit,qty_on_hand,avg_cost').eq('is_active', true).order('name'),
       sb.from('stock_losses').select('id,loss_date,qty,unit_cost,total_cost,reason,notes,products(name)').order('loss_date', { ascending: false }).order('created_at', { ascending: false }).limit(50),
-      sb.from('inventory_movements').select('id,movement_date,movement_type,qty_change,unit_cost,qty_after,note,product_id,products(name)').order('created_at', { ascending: false }).limit(150)
+      sb.from('inventory_movements').select('id,movement_date,movement_type,qty_change,unit_cost,qty_after,note,product_id,warehouse_id,products(name)').order('created_at', { ascending: false }).limit(150)
     ]);
     chk(rs);
     const [prod, loss, mv] = rs.map(r => r.data);
@@ -295,11 +297,13 @@ export function initFin(h, ops) {
     <div class="hint">Stock never changes silently. Every change is recorded with quantity, cost, reason, date and user. Damage and loss reduce stock and appear as a business loss.</div>
     ${canAct && prod.length ? `<div class="box"><h3 style="margin:0 0 6px">Record damage / loss</h3><form id="lf">
       <label>Product<select name="product" class="ss" required><option value="">— Select product —</option>${popt}</select></label>
+      ${h.wh.select(wc, 'Warehouse (stock is lost from here)')}
       <div class="row2">${fld('qty', 'Quantity lost', 0, 'required')}<label>Reason<select name="reason">${['damage', 'expired', 'broken', 'lost', 'theft', 'other'].map(r => `<option value="${r}">${label(r)}</option>`).join('')}</select></label></div>
       <div class="row2"><label>Date<input name="date" type="date" value="${today()}"></label><label>Notes<input name="notes"></label></div>
       <button class="btn go" style="width:100%">Record loss</button></form></div>
     <div class="box"><h3 style="margin:0 0 6px">Increase stock (adjustment)</h3><p class="mut">Use only for verified stock found or opening stock. Normal stock arrives through Purchases.</p><form id="af">
       <label>Product<select name="product" class="ss" required><option value="">— Select product —</option>${popt}</select></label>
+      ${h.wh.select(wc, 'Warehouse (stock is added here)')}
       <div class="row2">${fld('qty', 'Quantity to add', 0, 'required')}${fld('cost', 'Unit cost', 0, 'required')}</div>
       <div class="row2"><label>Date<input name="date" type="date" value="${today()}"></label><label>Notes<input name="notes" required placeholder="Reason for adjustment"></label></div>
       <button class="btn go" style="width:100%">Save adjustment</button></form></div>` : (canAct ? '<div class="hint">Add products first.</div>' : '')}
@@ -310,8 +314,8 @@ export function initFin(h, ops) {
     <div id="mvt"></div>`;
     const drawMv = () => {
       const f = $('#mvf', el).value, rows = mv.filter(m => !f || m.product_id === f);
-      $('#mvt', el).innerHTML = table(['Date', 'Product', 'Type', 'Change', 'Unit cost', 'Balance after', 'Reference'],
-        rows.map(m => `<tr><td>${esc(m.movement_date)}</td><td>${esc(m.products?.name || '')}</td><td>${esc(MV[m.movement_type] || label(m.movement_type))}</td><td><b>${N(m.qty_change) > 0 ? '+' : ''}${num(m.qty_change)}</b></td><td>${money(m.unit_cost)}</td><td>${num(m.qty_after)}</td><td>${esc(m.note || '')}</td></tr>`), 'No stock movements yet.');
+      $('#mvt', el).innerHTML = table(['Date', 'Product', 'Type', ...(wc.on ? ['Warehouse'] : []), 'Change', 'Unit cost', 'Balance after', 'Reference'],
+        rows.map(m => `<tr><td>${esc(m.movement_date)}</td><td>${esc(m.products?.name || '')}</td><td>${esc(MV[m.movement_type] || label(m.movement_type))}</td>${wc.on ? `<td>${esc(wnm[m.warehouse_id] || '—')}</td>` : ''}<td><b>${N(m.qty_change) > 0 ? '+' : ''}${num(m.qty_change)}</b></td><td>${money(m.unit_cost)}</td><td>${num(m.qty_after)}</td><td>${esc(m.note || '')}</td></tr>`), 'No stock movements yet.');
     };
     $('#mvf', el).onchange = drawMv; drawMv();
     const lf = $('#lf', el), af = $('#af', el);
@@ -319,7 +323,7 @@ export function initFin(h, ops) {
       e.preventDefault(); const b = lf.querySelector('.go'); b.disabled = true;
       try {
         const fd = new FormData(lf);
-        const { error } = await sb.rpc('record_stock_loss', { p_product: fd.get('product'), p_qty: N(fd.get('qty')), p_reason: fd.get('reason'), p_date: fd.get('date'), p_notes: fd.get('notes') || null });
+        const { error } = await sb.rpc('record_stock_loss', { p_product: fd.get('product'), p_qty: N(fd.get('qty')), p_reason: fd.get('reason'), p_date: fd.get('date'), p_notes: fd.get('notes') || null, ...(wc.on ? { p_warehouse: fd.get('warehouse_id') } : {}) });
         if (error) throw error; toast('Loss recorded. Stock reduced.'); await viewInventory(el);
       } catch (err) { toast(errMsg(err), 'err'); b.disabled = false; }
     };
@@ -327,7 +331,7 @@ export function initFin(h, ops) {
       e.preventDefault(); const b = af.querySelector('.go'); b.disabled = true;
       try {
         const fd = new FormData(af);
-        const { error } = await sb.rpc('adjust_stock_up', { p_product: fd.get('product'), p_qty: N(fd.get('qty')), p_unit_cost: N(fd.get('cost')), p_date: fd.get('date'), p_notes: fd.get('notes') });
+        const { error } = await sb.rpc('adjust_stock_up', { p_product: fd.get('product'), p_qty: N(fd.get('qty')), p_unit_cost: N(fd.get('cost')), p_date: fd.get('date'), p_notes: fd.get('notes'), ...(wc.on ? { p_warehouse: fd.get('warehouse_id') } : {}) });
         if (error) throw error; toast('Stock adjustment saved.'); await viewInventory(el);
       } catch (err) { toast(errMsg(err), 'err'); b.disabled = false; }
     };
@@ -360,9 +364,9 @@ export function initFin(h, ops) {
       banners: () => listView($('#sec', el), {
         title: 'Website banners', table: 'site_banners', canEdit: true, newTitle: 'New banner', editTitle: 'Edit banner', empty: 'No banners yet. The website shows a default banner until you add one.', searchKeys: ['title'],
         note: 'Banners rotate automatically on the website home page and can be swiped. Use a wide photo (about 1200 × 500). Title and text are optional. A lower order number shows first.',
-        fields: [{ key: 'image_url', label: 'Banner image', type: 'image' }, { key: 'title', label: 'Title (optional)' }, { key: 'subtitle', label: 'Text under the title (optional)' }, { key: 'link_url', label: 'Link when tapped (optional, e.g. #/p/… or https://…)' }, { key: 'sort_order', label: 'Order (1 = first)', type: 'number' }, { key: 'is_active', label: 'Show on the website', type: 'check' }],
+        fields: [{ key: 'image_url', label: 'Banner image', type: 'image', max: 1600 }, { key: 'title', label: 'Title (optional)' }, { key: 'subtitle', label: 'Text under the title (optional)' }, { key: 'link_url', label: 'Link when tapped (optional, e.g. #/p/… or https://…)' }, { key: 'sort_order', label: 'Order (1 = first)', type: 'number' }, { key: 'is_active', label: 'Show on the website', type: 'check' }],
         cols: [{ h: '', f: x => x.image_url ? `<img src="${esc(x.image_url)}" alt="" style="width:80px;height:34px;object-fit:cover;border-radius:6px">` : '' }, { h: 'Title', f: x => esc(x.title || '—') }, { h: 'Order', f: x => num(x.sort_order) }, { h: 'Status', f: x => x.is_active ? 'Shown' : 'Hidden' }],
-        validate: p => { if (!p.image_url) throw new Error('Please add a banner image.'); },
+        validate: (p, fd) => { const chosen = fd && fd.get('image_url_file'); if (!p.image_url && !(chosen && chosen.size)) throw new Error('Please add a banner image.'); },
         load: async () => { const { data, error } = await sb.from('site_banners').select('*').order('sort_order'); if (error) throw error; return data; }
       }),
       productcats: () => listView($('#sec', el), {
