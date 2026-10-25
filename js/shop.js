@@ -95,24 +95,40 @@ function startSlides() {
   slideTimer = setInterval(() => { if (hold || document.hidden || !document.body.contains(c)) return; c.scrollTo({ left: ((idx() + 1) % n) * c.clientWidth, behavior: 'smooth' }); }, 5000);
 }
 
-let bestRaf = 0;
+let bestRaf = 0, bestOff = null;
 function bestHtml() {
-  const l = S.products.filter(p => p.is_best); if (!l.length) return '';
-  const set = l.map(p => `<div class="bt">${cardHtml(p)}</div>`).join('');
-  return `<section class="sh-best"><h3 class="sh-sec">Best Products</h3><div class="sh-bestrow" id="bestrow"><div class="bset">${set}</div><div class="bset" aria-hidden="true">${set}</div></div></section>`;
+  if (!S.products.some(p => p.is_best)) return '';
+  return `<section class="sh-best"><h3 class="sh-sec">Best Products</h3><div class="sh-bestrow" id="bestrow"></div></section>`;
 }
-function startBest() {   // slides right-to-left on its own, can be swiped by hand, pauses while touched
-  cancelAnimationFrame(bestRaf); const r = $('#bestrow'); if (!r) return;
-  const half = r.scrollWidth / 2; if (half <= r.clientWidth + 8) return;
-  let pos = r.scrollLeft, last = 0, hold = false, rel = null;
-  const stop = () => { hold = true; clearTimeout(rel); }, go = () => { clearTimeout(rel); rel = setTimeout(() => { pos = r.scrollLeft; hold = false; }, 1500); };
-  ['touchstart', 'mousedown', 'wheel'].forEach(ev => r.addEventListener(ev, stop, { passive: true }));
-  ['touchend', 'touchcancel', 'mouseup', 'mouseleave'].forEach(ev => r.addEventListener(ev, go, { passive: true }));
+/* slides right-to-left by itself; can be swiped with a finger or dragged with the mouse; pauses while touched / hovered.
+   The cards are repeated until one set is wider than the box, and 3 identical sets make an endless loop in both directions. */
+function startBest() {
+  cancelAnimationFrame(bestRaf); if (bestOff) bestOff(); bestOff = null;
+  const r = $('#bestrow'); if (!r) return;
+  const one = S.products.filter(p => p.is_best).map(p => `<div class="bt">${cardHtml(p)}</div>`).join('');
+  r.innerHTML = `<div class="bset">${one}</div>`;
+  const w = r.firstElementChild.offsetWidth || 1, k = Math.min(40, Math.max(1, Math.ceil((r.clientWidth + 240) / w))), set = one.repeat(k);
+  r.innerHTML = [0, 1, 2].map(i => `<div class="bset" ${i ? 'aria-hidden="true"' : ''}>${set}</div>`).join('');
+  applyWm(r, true);
+  const half = r.firstElementChild.offsetWidth; if (!half) return;
+  r.scrollLeft = half;
+  let pos = half, last = 0, hold = false, rel = null, dn = false, sx = 0, sl = 0, moved = false;
+  const stop = () => { hold = true; clearTimeout(rel); }, go = () => { clearTimeout(rel); rel = setTimeout(() => { pos = r.scrollLeft; hold = false; }, 1200); };
+  const down = e => { if (e.button !== 0) return; dn = true; moved = false; sx = e.clientX; sl = r.scrollLeft; r.classList.add('drag'); stop(); e.preventDefault(); };
+  const move = e => { if (!dn) return; const dx = e.clientX - sx; if (Math.abs(dx) > 4) moved = true; r.scrollLeft = sl - dx; };
+  const up = () => { if (!dn) return; dn = false; r.classList.remove('drag'); go(); };
+  const noClick = e => { if (moved) { e.stopPropagation(); e.preventDefault(); moved = false; } };
+  const pair = [['touchstart', stop], ['touchend', go], ['touchcancel', go], ['wheel', stop], ['mouseenter', stop], ['mouseleave', () => { if (!dn) go(); }], ['mousedown', down]];
+  pair.forEach(([ev, fn]) => r.addEventListener(ev, fn, { passive: ev !== 'mousedown' }));
+  r.addEventListener('click', noClick, true);
+  window.addEventListener('mousemove', move); window.addEventListener('mouseup', up);
+  bestOff = () => { window.removeEventListener('mousemove', move); window.removeEventListener('mouseup', up); };
   const tick = t => {
-    if (!document.body.contains(r)) return;
+    if (!document.body.contains(r)) { bestOff && bestOff(); return; }
     const dt = last ? Math.min(t - last, 64) : 0; last = t;
-    if (!hold && !document.hidden) { pos += dt * 0.035; if (pos >= half) pos -= half; r.scrollLeft = pos; } else if (hold) pos = r.scrollLeft;
-    if (r.scrollLeft >= half) { r.scrollLeft -= half; pos = r.scrollLeft; }
+    if (!hold && !document.hidden) { pos += dt * 0.04; if (pos >= 2 * half) pos -= half; r.scrollLeft = pos; } else if (hold) pos = r.scrollLeft;
+    const cur = r.scrollLeft;
+    if (cur >= 2 * half) { r.scrollLeft = cur - half; pos = r.scrollLeft; sl -= half; } else if (cur < half) { r.scrollLeft = cur + half; pos = r.scrollLeft; sl += half; }
     bestRaf = requestAnimationFrame(tick);
   };
   bestRaf = requestAnimationFrame(tick);
@@ -135,13 +151,13 @@ function home() {
   <div class="sh-cats" id="cats">${tiles.map(([id, name, ic]) => `<button class="sh-cat-t ${S.cat === id ? 'on' : ''}" data-c="${esc(id)}"><span class="ci">${svg(ic, 40)}</span><span>${esc(name)}</span></button>`).join('')}</div>
   <div class="sh-tools"><input class="sh-search" id="q" type="search" placeholder="Search products…" value="${esc(S.q)}"></div>${bestHtml()}<div id="grid"></div>`;
   const draw = () => {
-    const l = S.products.filter(p => (!S.cat || (S.cat === '__offer' ? p.old_price : p.category_id === S.cat)) && (!S.q || (p.name + ' ' + (p.category_name || '')).toLowerCase().includes(S.q.toLowerCase())));
+    const l = S.products.filter(p => (!S.cat || (S.cat === '__offer' ? p.old_price : (p.category_id === S.cat || (p.extra_category_ids || []).includes(S.cat)))) && (!S.q || (p.name + ' ' + (p.category_name || '')).toLowerCase().includes(S.q.toLowerCase())));
     const grouped = !S.cat && !S.q, secs = [];
     if (grouped) l.forEach(p => { const k = p.category_name || 'Other', g = secs.find(x => x[0] === k); g ? g[1].push(p) : secs.push([k, [p]]); });
     $('#grid').innerHTML = l.length ? (grouped ? secs.map(([k, ps]) => `<h3 class="sh-sec">${esc(k)}</h3><div class="sh-grid">${ps.map(cardHtml).join('')}</div>`).join('') : `<div class="sh-grid">${l.map(cardHtml).join('')}</div>`) : `<p class="sh-empty">${S.products.length ? 'No products match your search.' : 'Our online catalog is being prepared. Please call 01997905850 to order.'}</p>`;
     applyWm($('#grid'));
   };
-  draw(); startSlides(); applyWm($('#bestrow'), true); startBest();
+  draw(); startSlides(); startBest();
   $('#q').oninput = e => { S.q = e.target.value; draw(); };
   $('#cats').onclick = e => { const b = e.target.closest('[data-c]'); if (!b) return; S.cat = b.dataset.c; home(); };
   root.onclick = cardClicks;
@@ -293,7 +309,7 @@ function recovery() {
 function route() {
   const h = (location.hash || '#/').replace(/^#\/?/, '').split('?')[0];
   document.querySelectorAll('.sh-nav a').forEach(a => a.classList.remove('on'));
-  window.scrollTo(0, 0); root.onclick = null; clearInterval(slideTimer); cancelAnimationFrame(bestRaf);
+  window.scrollTo(0, 0); root.onclick = null; clearInterval(slideTimer); cancelAnimationFrame(bestRaf); if (bestOff) { bestOff(); bestOff = null; }
   if (h.startsWith('p/')) return productPage(h.slice(2));
   if (h === 'cart') return cart();
   if (h === 'checkout') return checkout();
