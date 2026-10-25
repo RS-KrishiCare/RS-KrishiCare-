@@ -3,6 +3,7 @@ import { initOps } from './ops.js';
 import { initFin } from './fin.js';
 import { initReports } from './reports.js';
 import { initDash } from './dash.js';
+import { initWh } from './wh.js';
 import { initEst } from './est.js';
 import { initWeb } from './web.js';
 import { ic } from './icons.js';
@@ -164,9 +165,9 @@ function modal(title, body, onSave, saveLabel = 'Save') {
   return m;
 }
 // Resize the photo in the browser (max 1000px, JPEG) before uploading, so phone photos stay small and the site stays fast.
-async function uploadImage(file) {
+async function uploadImage(file, max = 1000) {
   const bmp = await createImageBitmap(file);
-  const k = Math.min(1, 1000 / Math.max(bmp.width, bmp.height));
+  const k = Math.min(1, max / Math.max(bmp.width, bmp.height));
   const cv = document.createElement('canvas'); cv.width = Math.round(bmp.width * k); cv.height = Math.round(bmp.height * k);
   const cx = cv.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, cv.width, cv.height); cx.drawImage(bmp, 0, 0, cv.width, cv.height);
   const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.82));
@@ -187,6 +188,12 @@ function field(f, v) {
     const list = Array.isArray(val) ? val : [];
     return `<label>${f.label}<input type="hidden" name="${f.key}" value="${esc(JSON.stringify(list))}"><span class="fi-list">${list.map(u => `<span class="fi"><img src="${esc(u)}" alt=""><button type="button" class="fi-x" data-u="${esc(u)}" onclick="event.preventDefault();const h=this.closest('label').querySelector('input[type=hidden]');h.value=JSON.stringify(JSON.parse(h.value).filter(x=>x!==this.dataset.u));this.parentElement.remove()">✕ Remove</button></span>`).join('')}</span><input type="file" name="${f.key}_files" accept="image/*" multiple><small>You can keep up to 8 images. Removing happens when you press Save.</small></label>`;
   }
+  if (f.type === 'whstock') {   // stock per warehouse (counted quantities while tracking is OFF, read-only after switch-on)
+    if (!v) return '';   // a brand-new product has no stock yet
+    const q = (val && typeof val === 'object') ? val : {}, tot = N(v.qty_on_hand);
+    if (f.on) return `<div style="margin:10px 0"><b>${f.label}</b><div class="mut" style="margin-top:4px">${f.warehouses.map(w => `${esc(w.name)}: <b>${num(q[w.id] || 0)}</b>`).join(' &nbsp;·&nbsp; ')} &nbsp;(total <b>${num(tot)}</b>)<br>Warehouse tracking is on. Change stock with a purchase, sale, or Warehouses → Transfer / Adjust.</div></div>`;
+    return `<div style="margin:10px 0"><b>${f.label}</b><p class="mut" style="margin:4px 0">System total stock: <b>${num(tot)}</b>. Enter the <b>real counted</b> quantity in each warehouse — together they must equal the system total before warehouse tracking can be switched on.</p><div class="row2">${f.warehouses.map(w => `<label>${esc(w.name)}<input name="wh_${w.id}" type="number" step="any" min="0" inputmode="decimal" value="${num(q[w.id] || 0)}"></label>`).join('')}</div></div>`;
+  }
   if (f.type === 'cats') {   // extra category tags: several tick-boxes
     const sel = new Set(Array.isArray(val) ? val : []);
     return `<div style="margin:10px 0"><b>${f.label}</b><div style="display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:6px">${f.options.map(([id, n]) => `<label class="chk"><input type="checkbox" name="${f.key}" value="${esc(id)}" ${sel.has(id) ? 'checked' : ''}> ${esc(n)}</label>`).join('')}</div></div>`;
@@ -200,6 +207,7 @@ function readForm(fd, fields) {
   for (const f of fields) {
     if (f.type === 'check') o[f.key] = fd.get(f.key) === 'on';
     else if (f.type === 'cats') o[f.key] = fd.getAll(f.key);
+    else if (f.type === 'whstock') o[f.key] = Object.fromEntries(f.warehouses.map(w => [w.id, N(fd.get('wh_' + w.id))]));
     else if (f.type === 'images') { try { o[f.key] = JSON.parse(fd.get(f.key) || '[]'); } catch (_) { o[f.key] = []; } }
     else if (f.type === 'number') { const n = Number(fd.get(f.key) || 0); o[f.key] = (f.nullZero && !n) ? null : n; }
     else { const v = (fd.get(f.key) || '').trim(); o[f.key] = v === '' ? null : v; }
@@ -234,21 +242,21 @@ async function listView(el, cfg) {
   };
   const edit = row => modal(row ? cfg.editTitle : cfg.newTitle, cfg.fields.map(f => field(f, row)).join(''), async fd => {
     const p = readForm(fd, cfg.fields), extra = {};
-    for (const f of cfg.fields.filter(x => x.type === 'cats')) { extra[f.key] = p[f.key]; delete p[f.key]; }
-    if (cfg.validate) cfg.validate(p);
+    for (const f of cfg.fields.filter(x => x.type === 'cats' || x.type === 'whstock')) { extra[f.key] = p[f.key]; delete p[f.key]; }
+    if (cfg.validate) cfg.validate(p, fd);   // fd lets a rule see a photo that is chosen but not uploaded yet
     for (const f of cfg.fields.filter(x => x.type === 'images')) {
       const files = fd.getAll(f.key + '_files').filter(x => x && x.size), cur = p[f.key] || [];
       if (cur.length + files.length > 8) throw new Error('You can keep up to 8 feature images. Remove some first.');
       for (const file of files) cur.push(await uploadImage(file));
       p[f.key] = cur;
     }
-    for (const f of cfg.fields.filter(x => x.type === 'image')) { const file = fd.get(f.key + '_file'); if (file && file.size) p[f.key] = await uploadImage(file); }
+    for (const f of cfg.fields.filter(x => x.type === 'image')) { const file = fd.get(f.key + '_file'); if (file && file.size) p[f.key] = await uploadImage(file, f.max || 1000); }
     let id = row?.id, error;
     if (row) ({ error } = await sb.from(cfg.table).update(p).eq('id', row.id));
     else if (cfg.afterSave) { const r = await sb.from(cfg.table).insert(p).select('id').single(); error = r.error; id = r.data?.id; }
     else ({ error } = await sb.from(cfg.table).insert(p));
     if (error) throw error;
-    if (cfg.afterSave) await cfg.afterSave(id, extra, p);
+    if (cfg.afterSave) await cfg.afterSave(id, extra, p, row);
     toast('Saved successfully.'); await load();
   });
   $('#q', el).oninput = draw;
@@ -263,6 +271,8 @@ const confirmReason = (title, intro, fn, after) => modal(title, `<p>${intro}</p>
 const fsec = (n, title, body, hint = '') => `<div class="fsec"><div class="fsec-h"><span class="fsec-n">${n}</span><b>${title}</b>${hint ? `<small>${hint}</small>` : ''}</div><div class="fsec-b">${body}</div></div>`;
 const carry = {};
 const H = { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, field, readForm, listView, opts, chk, state, LOADING, confirmReason, fsec, carry, setSel: setSelect };
+const wh = initWh(H);
+H.wh = wh.api;
 const ops = initOps(H);
 const fin = initFin(H, ops);
 const est = initEst(H, ops);
@@ -282,6 +292,7 @@ const NAV = [
   { id: 'payments', ic: 'card', t: 'Payments & Receivables', roles: ['owner', 'partner', 'accountant', 'salesman'], fn: ops.viewPayments },
   { id: 'purchases', ic: 'truck', t: 'Purchases', roles: ['owner', 'partner', 'accountant', 'warehouse'], fn: ops.viewPurchases },
   { id: 'products', ic: 'package', t: 'Products & Stock', roles: ALL, fn: viewProducts },
+  { id: 'warehouses', ic: 'store', t: 'Warehouses', roles: ALL, fn: wh.viewWarehouses },
   { id: 'inventory', ic: 'clipboard', t: 'Inventory Control', roles: ['owner', 'partner', 'accountant', 'warehouse'], fn: fin.viewInventory },
   { id: 'expenses', ic: 'wallet', t: 'Expenses', roles: FIN, fn: fin.viewExpenses },
   { id: 'finance', ic: 'landmark', t: 'Finance & Accounts', roles: FIN, fn: fin.viewFinance },
@@ -349,10 +360,12 @@ async function viewProducts(el) {
   const seeCost = !has('salesman'), canEdit = has('owner', 'partner', 'warehouse');
   const { data: cats, error: ce } = await sb.from('categories').select('id,name').eq('is_active', true).order('name'); if (ce) throw ce;
   const cname = Object.fromEntries(cats.map(c => [c.id, c.name]));
+  const wc = await H.wh.get(true);
   const fields = [
     { key: 'name', label: 'Product name', req: true }, { key: 'sku', label: 'SKU / code' },
     { key: 'category_id', label: 'Main category', type: 'select', options: [['', '— Select —'], ...cats.map(c => [c.id, c.name])] },
     { key: 'cat_ids', label: 'Also show under these categories (extra tags — optional)', type: 'cats', options: cats.map(c => [c.id, c.name]) },
+    ...(wc.list.length ? [{ key: 'wh_qty', label: 'Stock in each warehouse', type: 'whstock', warehouses: wc.list, on: wc.on }] : []),
     { key: 'unit', label: 'Unit', type: 'select', def: 'piece', options: ['piece', 'packet', 'kg', 'gram', 'litre', 'ml', 'bag', 'carton', 'bundle', 'set', 'other'].map(u => [u, u]) },
     { key: 'units_per_carton', label: 'Pieces per carton (used to share shipping costs automatically)', type: 'number', nullZero: true },
     { key: 'sell_price', label: 'Standard retailer price', type: 'number' }, { key: 'facebook_price', label: 'Facebook price', type: 'number' },
@@ -370,6 +383,7 @@ async function viewProducts(el) {
     { h: 'Product', f: x => `<b>${esc(x.name)}</b>${x.sku ? `<br><small>${esc(x.sku)}</small>` : ''}` },
     { h: 'Category', f: x => esc(cname[x.category_id] || '—') + ((x.cat_ids || []).length ? `<br><small>+ ${esc(x.cat_ids.map(i => cname[i]).filter(Boolean).join(', '))}</small>` : '') },
     { h: 'Stock', f: x => `<span class="badge ${seeCost && Number(x.qty_on_hand) <= Number(x.min_stock) ? 'low' : ''}">${num(x.qty_on_hand)} ${esc(x.unit)}</span>` },
+    ...wc.list.map(w => ({ h: w.name, f: x => (x.wh_qty && x.wh_qty[w.id] != null) ? num(x.wh_qty[w.id]) : '—' })),
     { h: 'Retailer price', f: x => money(x.sell_price) }, { h: 'Facebook price', f: x => money(x.facebook_price) }
   ];
   if (seeCost) cols.splice(1, 0, { h: 'Photo', f: x => x.image_url ? `<img class="thumb" src="${esc(x.image_url)}" alt="" loading="lazy">` : '—' });
@@ -379,7 +393,11 @@ async function viewProducts(el) {
   await listView(el, {
     title: 'Products & Stock', table: 'products', canEdit, fields, cols, searchKeys: ['name', 'sku'],
     filter: { all: 'All categories', items: () => [...cats.map(c => [c.id, c.name]), ['__none', 'No category']], match: (x, v) => v === '__none' ? (!x.category_id && !(x.cat_ids || []).length) : (x.category_id === v || (x.cat_ids || []).includes(v)) },
-    afterSave: async (id, extra, p) => {
+    afterSave: async (id, extra, p, row) => {
+      if (row && !wc.on && extra.wh_qty) {   // opening stock per warehouse (tracking still OFF). Only sent when something was changed.
+        const old = row.wh_qty || {};
+        if (wc.list.some(w => N(extra.wh_qty[w.id]) !== N(old[w.id]))) { const r = await sb.rpc('wh_set_opening_stock', { p_product: id, p_qtys: extra.wh_qty }); if (r.error) throw r.error; }
+      }
       const ids = [...new Set((extra.cat_ids || []).filter(c => c && c !== p.category_id))];
       const del = await sb.from('product_categories').delete().eq('product_id', id); if (del.error) throw del.error;
       if (ids.length) { const ins = await sb.from('product_categories').insert(ids.map(c => ({ product_id: id, category_id: c }))); if (ins.error) throw ins.error; }
@@ -392,7 +410,9 @@ async function viewProducts(el) {
       const { data, error } = await q; if (error) throw error;
       const { data: pc } = await sb.from('product_categories').select('product_id,category_id').limit(10000), m = {};
       (pc || []).forEach(r => (m[r.product_id] = m[r.product_id] || []).push(r.category_id));
-      data.forEach(x => { x.cat_ids = m[x.id] || []; });
+      const { data: ws } = await sb.from('warehouse_stock').select('product_id,warehouse_id,qty').limit(20000), mw = {};
+      (ws || []).forEach(r => { (mw[r.product_id] = mw[r.product_id] || {})[r.warehouse_id] = N(r.qty); });
+      data.forEach(x => { x.cat_ids = m[x.id] || []; x.wh_qty = mw[x.id] || {}; });
       return data;
     }
   });
