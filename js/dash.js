@@ -85,7 +85,8 @@ export function initDash(H) {
       ['v_partner_summary', sb.from('v_partner_summary').select('*').order('name')],
       ['v_stock', sb.from('v_stock').select('product_id,name,unit,qty_on_hand,min_stock').eq('is_low', true).order('qty_on_hand').limit(50)],
       ['v_daily', sb.from('v_daily').select('*').gte('day', from.toLocaleDateString('en-CA')).order('day', { ascending: true })],
-      ['v_my_fb_orders', sb.from('v_my_fb_orders').select('status').limit(5000)]
+      ['v_my_fb_orders', sb.from('v_my_fb_orders').select('status,channel').limit(5000)],
+      ['v_channel_summary', sb.from('v_channel_summary').select('*')]
     ];
     const soft = q => Promise.resolve(q).then(r => r.error ? { data: null, count: null } : r).catch(() => ({ data: null, count: null }));
     const [res, ex] = await Promise.all([
@@ -102,7 +103,8 @@ export function initDash(H) {
     ]);
     const bad = res.map((r, i) => r.error ? `${core[i][0]}: ${r.error.message}` : null).filter(Boolean);
     if (bad.length) { el.innerHTML = `<p class="err">The dashboard could not be loaded. Technical details:<br><small>${esc(bad.join(' | '))}</small></p>`; return; }
-    const [f, a, p, s, dy, fbo] = res;
+    const [f, a, p, s, dy, fbo, chs] = res;
+    const sumOf = c => (chs.data || []).find(x => x.channel === c) || {}, fbS = sumOf('facebook'), wbS = sumOf('website');
     const [saleCnt, fbCnt, rSales, rPur, rExp, rFb, rPay] = ex;
     const d = f.data || {}, accts = a.data || [], partners = p.data || [], low = s.data || [], daily = dy.data || [];
     const tr = daily.find(x => x.day === t0) || { sales: 0, expenses: 0, profit: 0 };
@@ -116,8 +118,9 @@ export function initDash(H) {
     const att = [];
     accts.filter(x => N(x.balance) < 0).forEach(x => att.push({ tone: 'red', icon: 'alert', text: `${esc(x.name)} balance is negative (${mny(x.balance)})`, href: '#finance', cta: 'Review accounts' }));
     if (N(d.low_stock_count) > 0) att.push({ tone: out ? 'red' : 'amber', icon: 'alert', text: `${num(d.low_stock_count)} ${N(d.low_stock_count) === 1 ? 'product is' : 'products are'} low in stock${out ? ` (${out} out of stock)` : ''}`, href: '#products', cta: 'View stock' });
-    if (N(d.fb_cod_pending) > 0) att.push({ tone: 'amber', icon: 'clock', text: `Facebook COD pending: ${mny(d.fb_cod_pending)}`, href: '#facebook', cta: 'View orders' });
-    if (N(d.courier_advance_pending) > 0) att.push({ tone: 'amber', icon: 'clock', text: `Courier advance awaiting settlement: ${mny(d.courier_advance_pending)}`, href: '#facebook', cta: 'View orders' });
+    if (N(fbS.cod_pending) > 0) att.push({ tone: 'amber', icon: 'clock', text: `Facebook COD pending: ${mny(fbS.cod_pending)}`, href: '#facebook', cta: 'View orders' });
+    if (N(wbS.cod_pending) > 0) att.push({ tone: 'amber', icon: 'clock', text: `Website COD pending: ${mny(wbS.cod_pending)}`, href: '#weborders', cta: 'View orders' });
+    if (N(fbS.advance_pending) > 0) att.push({ tone: 'amber', icon: 'clock', text: `Courier advance awaiting settlement: ${mny(fbS.advance_pending)}`, href: '#facebook', cta: 'View orders' });
     if (N(d.retailer_due) > 0) att.push({ tone: 'blue', icon: 'users', text: `Retailers owe ${mny(d.retailer_due)}`, href: '#payments', cta: 'View receivables' });
     else att.push({ tone: 'green', icon: 'check', text: 'No retailer dues' });
     if (N(d.supplier_due) > 0) att.push({ tone: 'blue', icon: 'truck', text: `Supplier payable: ${mny(d.supplier_due)}`, href: '#purchases', cta: 'View payables' });
@@ -141,10 +144,11 @@ export function initDash(H) {
     }).join('');
 
     /* facebook pipeline */
-    const cnt = {}; (fbo.data || []).forEach(o => cnt[o.status] = (cnt[o.status] || 0) + 1);
-    const pipe = [['Pending', cnt.New || 0, 'amber'], ['Confirmed', cnt.Confirmed || 0, 'blue'],
-      ['Courier', (cnt.Processing || 0) + (cnt.Packed || 0) + (cnt.Shipped || 0), 'blue'],
-      ['Delivered', cnt.Delivered || 0, 'green'], ['Returned', (cnt.Returned || 0) + (cnt.Failed || 0), 'red']];
+    const cnt = {}, wcnt = {}; (fbo.data || []).forEach(o => { const t = o.channel === 'website' ? wcnt : cnt; t[o.status] = (t[o.status] || 0) + 1; });
+    const mkPipe = c => [['Pending', c.New || 0, 'amber'], ['Confirmed', c.Confirmed || 0, 'blue'],
+      ['Courier', (c.Processing || 0) + (c.Packed || 0) + (c.Shipped || 0), 'blue'],
+      ['Delivered', c.Delivered || 0, 'green'], ['Returned', (c.Returned || 0) + (c.Failed || 0), 'red']];
+    const pipe = mkPipe(cnt), wpipe = mkPipe(wcnt);
 
     /* recent activity */
     const act = [];
@@ -204,6 +208,12 @@ export function initDash(H) {
       <div class="d-pipe">${pipe.map((x, i) => `<div class="d-step ${x[2]}"><b>${x[1]}</b><small>${x[0]}</small></div>${i < pipe.length - 1 ? `<span class="d-sep">${ic('chevron', 14)}</span>` : ''}`).join('')}</div>
       <div class="d-due"><div><small>COD Pending</small><b>${mny(d.fb_cod_pending)}</b></div><div><small>Courier Advance Pending</small><b>${mny(d.courier_advance_pending)}</b></div></div>
       ${cnt.Cancelled ? `<small class="mut">${cnt.Cancelled} cancelled order(s) not shown in the pipeline.</small>` : ''}
+    </section>
+
+    <section class="d-card">${sec('globe', 'Website Orders', link('#weborders', 'View Website Orders'))}
+      <div class="d-pipe">${wpipe.map((x, i) => `<div class="d-step ${x[2]}"><b>${x[1]}</b><small>${x[0]}</small></div>${i < wpipe.length - 1 ? `<span class="d-sep">${ic('chevron', 14)}</span>` : ''}`).join('')}</div>
+      <div class="d-due"><div><small>COD Pending</small><b>${mny(wbS.cod_pending)}</b></div><div><small>Delivered sales</small><b>${mny(wbS.delivered_sales)}</b></div></div>
+      ${wcnt.Cancelled ? `<small class="mut">${wcnt.Cancelled} cancelled order(s) not shown in the pipeline.</small>` : ''}
     </section>
 
     <section class="d-card">${sec('landmark', 'Capital &amp; Equity')}

@@ -4,6 +4,7 @@ import { initFin } from './fin.js';
 import { initReports } from './reports.js';
 import { initDash } from './dash.js';
 import { initEst } from './est.js';
+import { initWeb } from './web.js';
 import { ic } from './icons.js';
 import { initUI, setSelect, refreshCatData } from './ui.js';
 
@@ -248,6 +249,7 @@ const H = { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, field, 
 const ops = initOps(H);
 const fin = initFin(H, ops);
 const est = initEst(H, ops);
+const web = initWeb(H);
 const rep = initReports(H);
 const dash = initDash(H);
 
@@ -259,6 +261,7 @@ const NAV = [
   { id: 'sales', ic: 'bag', t: 'Retailer Sales', roles: ['owner', 'partner', 'salesman'], fn: ops.viewSales },
   { id: 'estimates', ic: 'file', t: 'Estimates', roles: ['owner', 'partner', 'salesman'], fn: est.viewEstimates },
   { id: 'facebook', ic: 'message', t: 'Facebook Orders', roles: ALL, fn: fin.viewFacebook },
+  { id: 'weborders', ic: 'globe', t: 'Website Orders', roles: ['owner', 'partner', 'accountant', 'warehouse'], fn: el => fin.viewFacebook(el, 'website') },
   { id: 'payments', ic: 'card', t: 'Payments & Receivables', roles: ['owner', 'partner', 'accountant', 'salesman'], fn: ops.viewPayments },
   { id: 'purchases', ic: 'truck', t: 'Purchases', roles: ['owner', 'partner', 'accountant', 'warehouse'], fn: ops.viewPurchases },
   { id: 'products', ic: 'package', t: 'Products & Stock', roles: ALL, fn: viewProducts },
@@ -270,6 +273,7 @@ const NAV = [
   { id: 'suppliers', ic: 'truck', t: 'Suppliers', roles: ['owner', 'partner', 'accountant', 'warehouse'], fn: viewSuppliers },
   { id: 'reports', ic: 'chart', t: 'Reports', roles: ['owner', 'partner', 'accountant', 'warehouse'], fn: rep.viewReports },
   { id: 'custom', ic: 'filter', t: 'Custom Report', roles: FIN, fn: rep.viewCustom },
+  { id: 'webact', ic: 'globe', t: 'Website Activity', roles: FIN, fn: web.viewWebActivity },
   { id: 'users', ic: 'user', t: 'Users & Roles', roles: ['owner'], fn: viewUsers },
   { id: 'audit', ic: 'shield', t: 'Audit Log', roles: ['owner'], fn: fin.viewAudit },
   { id: 'settings', ic: 'sliders', t: 'Settings', roles: ['owner'], fn: fin.viewSettings }

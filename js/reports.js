@@ -14,6 +14,7 @@ export function initReports(h) {
     { id: 'retailer_due', label: 'Retailer due report', f: ['retailer'] },
     { id: 'supplier_due', label: 'Supplier due report', f: ['supplier'] },
     { id: 'facebook', label: 'Facebook orders report', f: ['status', 'product'] },
+    { id: 'website', label: 'Website orders report', f: ['status', 'product'] },
     { id: 'courier', label: 'Courier settlement report', f: ['status'] },
     { id: 'accounts', label: 'Cash, bank and mobile wallet report', f: ['account'] },
     { id: 'collections', label: 'Payment collection report', f: ['retailer', 'account'] },
@@ -88,7 +89,7 @@ export function initReports(h) {
     let last = null;
     const sOpts = (rows, all = 'All') => `<option value="">${all}</option>` + rows.map(r => `<option value="${esc(r.id)}">${esc(r.name)}</option>`).join('');
     const FILT = {
-      channel: () => `<label>Channel<select name="channel"><option value="">All channels</option><option value="retailer">Retailer</option><option value="facebook">Facebook</option></select></label>`,
+      channel: () => `<label>Channel<select name="channel"><option value="">All channels</option><option value="retailer">Retailer</option><option value="facebook">Facebook</option><option value="website">Website</option></select></label>`,
       product: () => `<label>Product<select name="product" class="ss">${sOpts(L.products, 'All products')}</select></label>`,
       retailer: () => `<label>Retailer<select name="retailer" class="ss">${sOpts(L.retailers, 'All retailers')}</select></label>`,
       supplier: () => `<label>Supplier<select name="supplier" class="ss">${sOpts(L.suppliers, 'All suppliers')}</select></label>`,

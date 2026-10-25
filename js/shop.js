@@ -11,7 +11,10 @@ let slideTimer = null;
 
 /* ---------- cart (kept in this phone's browser) ---------- */
 const loadCart = () => { try { return JSON.parse(localStorage.getItem('rsk_cart') || '{}'); } catch (_) { return {}; } };
-const saveCart = c => { localStorage.setItem('rsk_cart', JSON.stringify(c)); badge(); };
+const sid = (() => { let v = localStorage.getItem('rsk_sid'); if (!v) { v = Array.from(crypto.getRandomValues(new Uint8Array(12)), b => b.toString(16).padStart(2, '0')).join(''); localStorage.setItem('rsk_sid', v); } return v; })();
+let syncT = null;
+function syncCart(c) { clearTimeout(syncT); syncT = setTimeout(() => { sb.rpc('save_web_cart', { p_session: sid, p_items: Object.entries(c).filter(([, q]) => q > 0).map(([product_id, qty]) => ({ product_id, qty })) }).then(() => { }, () => { }); }, 700); }
+const saveCart = c => { localStorage.setItem('rsk_cart', JSON.stringify(c)); badge(); syncCart(c); };
 const cartItems = () => Object.entries(loadCart()).map(([id, q]) => ({ p: S.products.find(x => x.id === id), q })).filter(x => x.p && x.q > 0);
 const cartTotal = () => cartItems().reduce((s, x) => s + x.q * Number(x.p.price), 0);
 function badge() { const n = cartItems().reduce((s, x) => s + x.q, 0), b = $('#cart-count'); b.textContent = n; b.hidden = !n; }

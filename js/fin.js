@@ -16,13 +16,13 @@ export function initFin(h, ops) {
   };
   const FINISHED = ['Delivered', 'Returned', 'Failed', 'Cancelled'];
 
-  async function viewFacebook(el) {
-    const canCreate = has('owner', 'partner', 'salesman'), canStatus = has('owner', 'partner', 'warehouse', 'accountant'), canSettle = has('owner', 'accountant');
+  async function viewFacebook(el, channel = 'facebook') {
+    const web = channel === 'website', canCreate = !web && has('owner', 'partner', 'salesman'), canStatus = has('owner', 'partner', 'warehouse', 'accountant'), canSettle = has('owner', 'accountant');
     const rs = await Promise.all([
       sb.from('couriers').select('id,name').eq('is_active', true).order('name'),
       sb.from('v_products_sales').select('id,name,unit,facebook_price,qty_on_hand').order('name'),
       sb.from('v_payment_methods').select('id,name').order('name'),
-      sb.from('v_my_fb_orders').select('*').order('created_at', { ascending: false }).limit(100)
+      sb.from('v_my_fb_orders').select('*').eq('channel', channel).order('created_at', { ascending: false }).limit(100)
     ]);
     chk(rs);
     const [cour, prod, acc, orders] = rs.map(r => r.data);
@@ -59,10 +59,10 @@ export function initFin(h, ops) {
       </td></tr>`;
     });
 
-    el.innerHTML = `<div class="bar"><h2>Facebook Orders</h2></div>
-    <div class="hint"><b>How it works:</b> COD equals the product total only. Stock leaves the warehouse when an order is <b>Shipped</b>; revenue is recognised when it is <b>Delivered</b>. If an order is <b>Returned</b> or <b>Failed</b>, the stock returns automatically. The courier advance never affects profit; it is settled to the courier in every outcome and is not refunded to the customer.</div>
+    el.innerHTML = `<div class="bar"><h2>${web ? 'Website Orders' : 'Facebook Orders'}</h2></div>
+    ${web ? '<div class="hint"><b>Orders placed by customers on your website</b> (cash on delivery). Call the customer to confirm, then update the status. Stock leaves the warehouse when an order is <b>Shipped</b> and the sale is recognised when it is <b>Delivered</b>; if it is <b>Returned</b> or <b>Failed</b> the stock returns automatically.</div>' : `<div class="hint"><b>How it works:</b> COD equals the product total only. Stock leaves the warehouse when an order is <b>Shipped</b>; revenue is recognised when it is <b>Delivered</b>. If an order is <b>Returned</b> or <b>Failed</b>, the stock returns automatically. The courier advance never affects profit; it is settled to the courier in every outcome and is not refunded to the customer.</div>`}
     ${form}<h3 class="sec">Orders</h3>
-    ${table(['Order', 'Customer', 'Status', 'Product total (COD)', 'Courier advance', 'COD pending', ''], rowsHtml, 'No Facebook orders yet.')}`;
+    ${table(['Order', 'Customer', 'Status', 'Product total (COD)', 'Courier advance', 'COD pending', ''], rowsHtml, web ? 'No website orders yet.' : 'No Facebook orders yet.')}`;
 
     el.onclick = async e => {
       const b = e.target.closest('[data-a]'); if (!b) return;
@@ -72,17 +72,17 @@ export function initFin(h, ops) {
         if (b.dataset.a === 'st') modal('Update status — ' + o.order_ref,
           `<label>New status<select name="status">${NEXT[o.status].map(s => `<option>${s}</option>`).join('')}</select></label><label>Note (optional)<input name="note"></label>
            <p class="mut">Shipped: stock leaves the warehouse. Delivered: revenue is recognised. Returned / Failed: stock returns to the warehouse.</p>`,
-          async fd => { const { error } = await sb.rpc('fb_set_status', { p_order: o.id, p_status: fd.get('status'), p_note: fd.get('note') || null }); if (error) throw error; toast('Order status updated.'); viewFacebook(el); });
+          async fd => { const { error } = await sb.rpc('fb_set_status', { p_order: o.id, p_status: fd.get('status'), p_note: fd.get('note') || null }); if (error) throw error; toast('Order status updated.'); viewFacebook(el, channel); });
         if (b.dataset.a === 'adv') modal('Settle courier advance — ' + o.order_ref,
           `<p>Pay <b>${money(o.courier_advance)}</b> to the courier. This has no effect on profit.</p><label>Paid from<select name="account">${opts(acc)}</select></label><label>Date<input name="date" type="date" value="${today()}"></label>`,
-          async fd => { const { error } = await sb.rpc('fb_settle_advance', { p_order: o.id, p_account: fd.get('account'), p_date: fd.get('date') }); if (error) throw error; toast('Courier advance settled.'); viewFacebook(el); });
+          async fd => { const { error } = await sb.rpc('fb_settle_advance', { p_order: o.id, p_account: fd.get('account'), p_date: fd.get('date') }); if (error) throw error; toast('Courier advance settled.'); viewFacebook(el, channel); });
         if (b.dataset.a === 'cod') modal('Receive COD — ' + o.order_ref,
           `${fld('amount', 'Amount received', Number(o.cod_amount) - Number(o.cod_received), 'required')}<label>Received into<select name="account">${opts(acc)}</select></label><label>Date<input name="date" type="date" value="${today()}"></label>`,
-          async fd => { const { error } = await sb.rpc('fb_receive_cod', { p_order: o.id, p_amount: N(fd.get('amount')), p_account: fd.get('account'), p_date: fd.get('date') }); if (error) throw error; toast('COD recorded.'); viewFacebook(el); });
+          async fd => { const { error } = await sb.rpc('fb_receive_cod', { p_order: o.id, p_amount: N(fd.get('amount')), p_account: fd.get('account'), p_date: fd.get('date') }); if (error) throw error; toast('COD recorded.'); viewFacebook(el, channel); });
         if (b.dataset.a === 'rcod') confirmReason('Reverse COD — ' + o.order_ref, `The ${money(o.cod_received)} received for this order is taken back out of the account(s) it was deposited into. Use this to correct a wrongly recorded COD receipt.`,
-          r => sb.rpc('fb_reverse_cod', { p_order: o.id, p_reason: r }), () => viewFacebook(el));
+          r => sb.rpc('fb_reverse_cod', { p_order: o.id, p_reason: r }), () => viewFacebook(el, channel));
         if (b.dataset.a === 'radv') confirmReason('Undo courier settlement — ' + o.order_ref, `The ${money(o.courier_advance)} paid to the courier is returned to the account it was paid from, and the advance becomes pending again.`,
-          r => sb.rpc('fb_reverse_advance', { p_order: o.id, p_reason: r }), () => viewFacebook(el));
+          r => sb.rpc('fb_reverse_advance', { p_order: o.id, p_reason: r }), () => viewFacebook(el, channel));
       } catch (err) { toast(errMsg(err), 'err'); }
     };
 
@@ -114,7 +114,7 @@ export function initFin(h, ops) {
         if (items.some(i => !i.product_id)) throw new Error('Select a product for every line (or remove the empty line).');
         const p = { customer_name: fd.get('customer_name'), mobile: fd.get('mobile'), address: fd.get('address'), courier_id: fd.get('courier_id') || '', courier_advance: N(fd.get('courier_advance')), advance_account_id: fd.get('advance_account_id') || '', notes: fd.get('notes'), items };
         const { error } = await sb.rpc('create_fb_order', { p }); if (error) throw error;
-        toast('Order created.'); await viewFacebook(el);
+        toast('Order created.'); await viewFacebook(el, channel);
       } catch (err) { toast(errMsg(err), 'err'); b.disabled = false; }
     };
   }
