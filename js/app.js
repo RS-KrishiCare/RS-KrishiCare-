@@ -187,6 +187,10 @@ function field(f, v) {
     const list = Array.isArray(val) ? val : [];
     return `<label>${f.label}<input type="hidden" name="${f.key}" value="${esc(JSON.stringify(list))}"><span class="fi-list">${list.map(u => `<span class="fi"><img src="${esc(u)}" alt=""><button type="button" class="fi-x" data-u="${esc(u)}" onclick="event.preventDefault();const h=this.closest('label').querySelector('input[type=hidden]');h.value=JSON.stringify(JSON.parse(h.value).filter(x=>x!==this.dataset.u));this.parentElement.remove()">✕ Remove</button></span>`).join('')}</span><input type="file" name="${f.key}_files" accept="image/*" multiple><small>You can keep up to 8 images. Removing happens when you press Save.</small></label>`;
   }
+  if (f.type === 'cats') {   // extra category tags: several tick-boxes
+    const sel = new Set(Array.isArray(val) ? val : []);
+    return `<div style="margin:10px 0"><b>${f.label}</b><div style="display:flex;flex-wrap:wrap;gap:6px 16px;margin-top:6px">${f.options.map(([id, n]) => `<label class="chk"><input type="checkbox" name="${f.key}" value="${esc(id)}" ${sel.has(id) ? 'checked' : ''}> ${esc(n)}</label>`).join('')}</div></div>`;
+  }
   if (f.type === 'textarea')
     return `<label>${f.label}<textarea name="${f.key}" rows="2">${esc(val)}</textarea></label>`;
   return `<label>${f.label}<input name="${f.key}" type="${f.type || 'text'}" ${f.type === 'number' ? 'step="any" min="0" inputmode="decimal"' : ''} ${f.req ? 'required' : ''} value="${esc(val)}"></label>`;
@@ -195,6 +199,7 @@ function readForm(fd, fields) {
   const o = {};
   for (const f of fields) {
     if (f.type === 'check') o[f.key] = fd.get(f.key) === 'on';
+    else if (f.type === 'cats') o[f.key] = fd.getAll(f.key);
     else if (f.type === 'images') { try { o[f.key] = JSON.parse(fd.get(f.key) || '[]'); } catch (_) { o[f.key] = []; } }
     else if (f.type === 'number') { const n = Number(fd.get(f.key) || 0); o[f.key] = (f.nullZero && !n) ? null : n; }
     else { const v = (fd.get(f.key) || '').trim(); o[f.key] = v === '' ? null : v; }
@@ -205,12 +210,13 @@ function readForm(fd, fields) {
 async function listView(el, cfg) {
   el.innerHTML = `<div class="bar"><h2>${cfg.title}</h2>${cfg.canEdit ? '<button class="btn" id="add">+ New</button>' : ''}</div>
   ${cfg.note ? `<div class="hint">${cfg.note}</div>` : ''}
-  <input id="q" class="search" placeholder="Search…"><div id="list" class="tablewrap">${LOADING}</div>`;
+  <input id="q" class="search" placeholder="Search…">${cfg.filter ? `<select id="cf" class="search" style="margin-top:8px"><option value="">${cfg.filter.all}</option></select>` : ''}<div id="list" class="tablewrap">${LOADING}</div>`;
   let rows = [];
   const acts = cfg.actions || [];
   const draw = () => {
     const t = $('#q', el).value.toLowerCase();
-    const r = rows.filter(x => cfg.searchKeys.some(k => String(x[k] ?? '').toLowerCase().includes(t)));
+    const fv = cfg.filter ? $('#cf', el).value : '';
+    const r = rows.filter(x => cfg.searchKeys.some(k => String(x[k] ?? '').toLowerCase().includes(t)) && (!fv || cfg.filter.match(x, fv)));
     const hasAct = cfg.canEdit || acts.length;
     $('#list', el).innerHTML = r.length
       ? `<table><thead><tr>${hasAct ? '<th>Actions</th>' : ''}${cfg.cols.map(c => `<th>${c.h}</th>`).join('')}</tr></thead><tbody>${r.map(x =>
@@ -219,9 +225,16 @@ async function listView(el, cfg) {
     el.querySelectorAll('[data-id]').forEach(b => b.onclick = () => edit(rows.find(x => x.id === b.dataset.id)));
     el.querySelectorAll('[data-act]').forEach(b => b.onclick = () => acts[b.dataset.act].fn(rows.find(x => x.id === b.dataset.rid)));
   };
-  const load = async () => { try { rows = await cfg.load(); draw(); } catch (e) { $('#list', el).innerHTML = `<p class="err pad">${esc(errMsg(e))}</p>`; } };
+  const load = async () => {
+    try {
+      rows = await cfg.load();
+      if (cfg.filter) { const sel = $('#cf', el), cur = sel.value; sel.innerHTML = `<option value="">${cfg.filter.all} (${rows.length})</option>` + cfg.filter.items().map(([v, l]) => `<option value="${esc(v)}">${esc(l)} (${rows.filter(x => cfg.filter.match(x, v)).length})</option>`).join(''); sel.value = cur; }
+      draw();
+    } catch (e) { $('#list', el).innerHTML = `<p class="err pad">${esc(errMsg(e))}</p>`; }
+  };
   const edit = row => modal(row ? cfg.editTitle : cfg.newTitle, cfg.fields.map(f => field(f, row)).join(''), async fd => {
-    const p = readForm(fd, cfg.fields);
+    const p = readForm(fd, cfg.fields), extra = {};
+    for (const f of cfg.fields.filter(x => x.type === 'cats')) { extra[f.key] = p[f.key]; delete p[f.key]; }
     if (cfg.validate) cfg.validate(p);
     for (const f of cfg.fields.filter(x => x.type === 'images')) {
       const files = fd.getAll(f.key + '_files').filter(x => x && x.size), cur = p[f.key] || [];
@@ -230,8 +243,12 @@ async function listView(el, cfg) {
       p[f.key] = cur;
     }
     for (const f of cfg.fields.filter(x => x.type === 'image')) { const file = fd.get(f.key + '_file'); if (file && file.size) p[f.key] = await uploadImage(file); }
-    const { error } = row ? await sb.from(cfg.table).update(p).eq('id', row.id) : await sb.from(cfg.table).insert(p);
+    let id = row?.id, error;
+    if (row) ({ error } = await sb.from(cfg.table).update(p).eq('id', row.id));
+    else if (cfg.afterSave) { const r = await sb.from(cfg.table).insert(p).select('id').single(); error = r.error; id = r.data?.id; }
+    else ({ error } = await sb.from(cfg.table).insert(p));
     if (error) throw error;
+    if (cfg.afterSave) await cfg.afterSave(id, extra, p);
     toast('Saved successfully.'); await load();
   });
   $('#q', el).oninput = draw;
@@ -334,7 +351,8 @@ async function viewProducts(el) {
   const cname = Object.fromEntries(cats.map(c => [c.id, c.name]));
   const fields = [
     { key: 'name', label: 'Product name', req: true }, { key: 'sku', label: 'SKU / code' },
-    { key: 'category_id', label: 'Category', type: 'select', options: [['', '— Select —'], ...cats.map(c => [c.id, c.name])] },
+    { key: 'category_id', label: 'Main category', type: 'select', options: [['', '— Select —'], ...cats.map(c => [c.id, c.name])] },
+    { key: 'cat_ids', label: 'Also show under these categories (extra tags — optional)', type: 'cats', options: cats.map(c => [c.id, c.name]) },
     { key: 'unit', label: 'Unit', type: 'select', def: 'piece', options: ['piece', 'packet', 'kg', 'gram', 'litre', 'ml', 'bag', 'carton', 'bundle', 'set', 'other'].map(u => [u, u]) },
     { key: 'units_per_carton', label: 'Pieces per carton (used to share shipping costs automatically)', type: 'number', nullZero: true },
     { key: 'sell_price', label: 'Standard retailer price', type: 'number' }, { key: 'facebook_price', label: 'Facebook price', type: 'number' },
@@ -350,7 +368,7 @@ async function viewProducts(el) {
   ];
   const cols = [
     { h: 'Product', f: x => `<b>${esc(x.name)}</b>${x.sku ? `<br><small>${esc(x.sku)}</small>` : ''}` },
-    { h: 'Category', f: x => esc(cname[x.category_id] || '—') },
+    { h: 'Category', f: x => esc(cname[x.category_id] || '—') + ((x.cat_ids || []).length ? `<br><small>+ ${esc(x.cat_ids.map(i => cname[i]).filter(Boolean).join(', '))}</small>` : '') },
     { h: 'Stock', f: x => `<span class="badge ${seeCost && Number(x.qty_on_hand) <= Number(x.min_stock) ? 'low' : ''}">${num(x.qty_on_hand)} ${esc(x.unit)}</span>` },
     { h: 'Retailer price', f: x => money(x.sell_price) }, { h: 'Facebook price', f: x => money(x.facebook_price) }
   ];
@@ -360,12 +378,22 @@ async function viewProducts(el) {
   if (seeCost) cols.push({ h: 'Avg. cost (WAC)', f: x => money(x.avg_cost) }, { h: 'Stock value', f: x => money(Number(x.qty_on_hand) * Number(x.avg_cost)) });
   await listView(el, {
     title: 'Products & Stock', table: 'products', canEdit, fields, cols, searchKeys: ['name', 'sku'],
+    filter: { all: 'All categories', items: () => [...cats.map(c => [c.id, c.name]), ['__none', 'No category']], match: (x, v) => v === '__none' ? (!x.category_id && !(x.cat_ids || []).length) : (x.category_id === v || (x.cat_ids || []).includes(v)) },
+    afterSave: async (id, extra, p) => {
+      const ids = [...new Set((extra.cat_ids || []).filter(c => c && c !== p.category_id))];
+      const del = await sb.from('product_categories').delete().eq('product_id', id); if (del.error) throw del.error;
+      if (ids.length) { const ins = await sb.from('product_categories').insert(ids.map(c => ({ product_id: id, category_id: c }))); if (ins.error) throw ins.error; }
+    },
     validate: p => { if (p.web_visible && !(Number(p.web_price) > 0)) throw new Error('Enter a website price to show this product on the public website.'); },
     newTitle: 'New product', editTitle: 'Edit product', empty: 'No products yet. Use “+ New” to add your first product.',
-    note: canEdit ? 'Tap <b>Edit</b> to correct a product’s name, code, category, unit, prices or minimum stock. Stock quantity and average cost are controlled by purchases, sales and Inventory Control and cannot be typed in here. To remove a product from use, untick “Active”.' : '',
+    note: canEdit ? 'Use the category box to see the products of one category. A product has one <b>main category</b> and can also carry <b>extra category tags</b> — on the website it then appears under each of them. Tap <b>Edit</b> to correct a product’s name, code, category, unit, prices or minimum stock. Stock quantity and average cost are controlled by purchases, sales and Inventory Control and cannot be typed in here. To remove a product from use, untick “Active”.' : '',
     load: async () => {
       const q = seeCost ? sb.from('products').select('*').order('name').limit(2000) : sb.from('v_products_sales').select('*').order('name').limit(2000);
-      const { data, error } = await q; if (error) throw error; return data;
+      const { data, error } = await q; if (error) throw error;
+      const { data: pc } = await sb.from('product_categories').select('product_id,category_id').limit(10000), m = {};
+      (pc || []).forEach(r => (m[r.product_id] = m[r.product_id] || []).push(r.category_id));
+      data.forEach(x => { x.cat_ids = m[x.id] || []; });
+      return data;
     }
   });
 }
