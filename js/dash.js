@@ -104,6 +104,15 @@ export function initDash(H) {
     const bad = res.map((r, i) => r.error ? `${core[i][0]}: ${r.error.message}` : null).filter(Boolean);
     if (bad.length) { el.innerHTML = `<p class="err">The dashboard could not be loaded. Technical details:<br><small>${esc(bad.join(' | '))}</small></p>`; return; }
     const [f, a, p, s, dy, fbo, chs] = res;
+    /* partner cash (only when the owner has switched Partner Cash tracking on; otherwise nothing changes) */
+    let pcOn = false, funds = [];
+    try {
+      const st = await sb.rpc('pc_status');
+      if (!st.error && st.data && st.data.enabled) {
+        const fr = await sb.from('v_funds').select('*').eq('is_active', true).order('name');
+        if (!fr.error) { funds = fr.data || []; pcOn = true; }
+      }
+    } catch (_) { }
     const sumOf = c => (chs.data || []).find(x => x.channel === c) || {}, fbS = sumOf('facebook'), wbS = sumOf('website');
     const [saleCnt, fbCnt, rSales, rPur, rExp, rFb, rPay] = ex;
     const d = f.data || {}, accts = a.data || [], partners = p.data || [], low = s.data || [], daily = dy.data || [];
@@ -142,6 +151,22 @@ export function initDash(H) {
       const neg = N(x.balance) < 0;
       return `<div class="d-row ${neg ? 'neg' : ''}"><span class="d-rl">${ic(x.kind === 'bank' ? 'building' : x.kind === 'cash' ? 'banknote' : 'card', 16)}${esc(x.name)}${neg ? ' <em>Negative balance</em>' : ''}</span><b>${mny(x.balance)}</b></div>`;
     }).join('');
+
+    let pcCard = '';
+    if (pcOn) {
+      const sm = a => a.reduce((x, y) => x + N(y.balance), 0), row = (n, v, k) => `<div class="d-row ${N(v) < 0 ? 'neg' : ''}"><span class="d-rl">${ic(k, 16)}${n}</span><b>${mny(v)}</b></div>`;
+      const pcs = funds.filter(x => x.is_partner_cash), oth = funds.filter(x => !x.is_partner_cash);
+      const bank = oth.filter(x => x.kind === 'bank'), mfs = oth.filter(x => x.kind === 'mfs'), oc = oth.filter(x => x.kind === 'cash');
+      const withP = sm(pcs), all = sm(funds);
+      pcCard = `<section class="d-card">${sec('banknote', 'Partner Cash & Funds', link('#partnercash', 'Open Partner Cash'))}
+        <div class="d-total"><small>Total Business Funds</small><b class="${toneOf(all)}">${mny(all)}</b></div>
+        <div class="d-rows">${pcs.map(x => row(esc(x.name.replace(/^Cash - /, '')) + ' Cash', x.balance, 'banknote')).join('')}
+        ${row('<b>Total Cash with Partners</b>', withP, 'usersRound')}
+        ${row('Bank Balance', sm(bank), 'building')}
+        ${mfs.map(x => row('Mobile: ' + esc(x.name), x.balance, 'card')).join('')}
+        ${oc.length ? row('Other cash account', sm(oc), 'banknote') : ''}</div>
+        <small class="mut">Partner cash is business money held by the partners, not personal income. Bank deposits and hand-overs are transfers.</small></section>`;
+    }
 
     /* facebook pipeline */
     const cnt = {}, wcnt = {}; (fbo.data || []).forEach(o => { const t = o.channel === 'website' ? wcnt : cnt; t[o.status] = (t[o.status] || 0) + 1; });
@@ -198,7 +223,8 @@ export function initDash(H) {
       ${low.length > 4 ? `<small class="mut">+ ${low.length - 4} more low-stock items</small>` : ''}` : `<p class="d-empty">${ic('check', 16)} All products are above their minimum stock level.</p>`}
     </section>
 
-    <section class="d-card">${sec('landmark', 'Money', link('#finance', 'View accounts'))}
+    ${pcCard}
+    <section class="d-card">${sec('landmark', pcOn ? 'Accounts (all)' : 'Money', link('#finance', 'View accounts'))}
       <div class="d-total"><small>Total balance</small><b class="${toneOf(total)}">${mny(total)}</b></div>
       <div class="d-rows">${acctRows || '<p class="d-empty">No accounts configured.</p>'}</div>
       <div class="d-due"><div><small>Retailer due</small><b>${mny(d.retailer_due)}</b></div><div><small>Supplier due</small><b>${mny(d.supplier_due)}</b></div></div>

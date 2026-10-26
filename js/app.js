@@ -1,6 +1,7 @@
 import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
 import { initOps } from './ops.js';
 import { initFin } from './fin.js';
+import { initPc } from './pc.js';
 import { initReports } from './reports.js';
 import { initDash } from './dash.js';
 import { initWh } from './wh.js';
@@ -275,6 +276,7 @@ const wh = initWh(H);
 H.wh = wh.api;
 const ops = initOps(H);
 const fin = initFin(H, ops);
+const pcm = initPc(H);
 const est = initEst(H, ops);
 const web = initWeb(H);
 const rep = initReports(H);
@@ -296,6 +298,7 @@ const NAV = [
   { id: 'inventory', ic: 'clipboard', t: 'Inventory Control', roles: ['owner', 'partner', 'accountant', 'warehouse'], fn: fin.viewInventory },
   { id: 'expenses', ic: 'wallet', t: 'Expenses', roles: FIN, fn: fin.viewExpenses },
   { id: 'finance', ic: 'landmark', t: 'Finance & Accounts', roles: FIN, fn: fin.viewFinance },
+  { id: 'partnercash', ic: 'banknote', t: 'Partner Cash', roles: FIN, fn: pcm.viewPartnerCash },
   { id: 'capital', ic: 'usersRound', t: 'Partners & Capital', roles: FIN, fn: fin.viewCapital },
   { id: 'retailers', ic: 'store', t: 'Retailers', roles: ALL, fn: viewRetailers },
   { id: 'suppliers', ic: 'truck', t: 'Suppliers', roles: ['owner', 'partner', 'accountant', 'warehouse'], fn: viewSuppliers },

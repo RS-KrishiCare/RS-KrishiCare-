@@ -1,5 +1,7 @@
 // Facebook orders, Expenses, Finance & Accounts, Partners & Capital, Inventory Control, Audit Log, Settings.
 // Every write goes through database RPCs (atomic, role-checked, audited).
+import { getPc, bindPc } from './pcsplit.js';
+
 export function initFin(h, ops) {
   const { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, opts, chk, listView, LOADING, confirmReason, fsec } = h;
   const numIn = (cls, label, val = 0) => `<label>${label}<input class="${cls}" type="number" step="any" min="0" inputmode="decimal" value="${val}"></label>`;
@@ -135,6 +137,15 @@ export function initFin(h, ops) {
     ]);
     chk(rs);
     const [cats, acc, exp] = rs.map(r => r.data);
+    const paidBy = {};   // expense id -> lines "Partner · Account ৳amount" (only when partner tracking recorded them)
+    try {
+      if (exp.length) {
+        const min = exp.reduce((m, e) => (e.expense_date < m ? e.expense_date : m), exp[0].expense_date);
+        const { data: tx } = await sb.from('account_transactions').select('ref_id,amount,financial_accounts(name),partners(name)')
+          .eq('ref_table', 'expenses').eq('kind', 'expense').gte('txn_date', min).limit(2000);
+        (tx || []).forEach(t => { if (t.partners?.name) (paidBy[t.ref_id] = paidBy[t.ref_id] || []).push(`${t.partners.name} · ${t.financial_accounts?.name || ''} ${money(t.amount)}`); });
+      }
+    } catch (_) { }
     const by = {}; exp.forEach(e => { const k = e.expense_categories?.name || 'Other'; by[k] = (by[k] || 0) + N(e.amount); });
     const canAdd = has('owner', 'partner', 'accountant');
     el.innerHTML = `<div class="bar"><h2>Expenses</h2></div>
@@ -147,18 +158,20 @@ export function initFin(h, ops) {
       <button class="btn go" style="width:100%">Save expense</button></form></div>` : ''}
     <h3 class="sec">By category (latest 200 entries)</h3><div class="grid">${Object.keys(by).length ? Object.entries(by).map(([k, v]) => `<div class="card"><div class="l">${esc(k)}</div><div class="v">${money(v)}</div></div>`).join('') : '<div class="card"><div class="l">Total expenses</div><div class="v">৳ 0.00</div></div>'}</div>
     <h3 class="sec">Expense ledger</h3>
-    ${table(['Date', 'Category', 'Description', 'Paid from', 'Reference', 'Amount', ''], exp.map(e => `<tr><td>${esc(e.expense_date)}</td><td>${esc(e.expense_categories?.name || '')}</td><td>${esc(e.description || '')}</td><td>${esc(e.financial_accounts?.name || '')}</td><td>${esc(e.reference || '')}</td><td><b>${money(e.amount)}</b></td><td>${canAdd ? `<button class="btn sm ghost" data-del="${e.id}">Delete</button>` : ''}</td></tr>`), 'No expenses recorded yet.')}`;
+    ${table(['Date', 'Category', 'Description', 'Paid from', 'Reference', 'Amount', ''], exp.map(e => `<tr><td>${esc(e.expense_date)}</td><td>${esc(e.expense_categories?.name || '')}</td><td>${esc(e.description || '')}</td><td>${paidBy[e.id] ? paidBy[e.id].map(esc).join('<br>') : esc(e.financial_accounts?.name || '')}</td><td>${esc(e.reference || '')}</td><td><b>${money(e.amount)}</b></td><td>${canAdd ? `<button class="btn sm ghost" data-del="${e.id}">Delete</button>` : ''}</td></tr>`), 'No expenses recorded yet.')}`;
     el.querySelectorAll('[data-del]').forEach(b => b.onclick = () => {
       const x = exp.find(r => r.id === b.dataset.del);
       confirmReason('Delete expense', `Delete “${esc(x.description || '')}” (${money(x.amount)})? The amount is returned to the account. Use this to correct a wrongly entered expense; the original entry stays in the Audit Log.`,
         r => sb.rpc('void_expense', { p_expense: x.id, p_reason: r }), () => viewExpenses(el));
     });
     const f = $('#ef', el); if (!f) return;
+    const pcs = bindPc(await getPc(sb), f, { select: f.elements.account_id, dir: 'paid', title: 'Paid by', getTotal: () => N(f.elements.amount.value) });
     f.onsubmit = async e => {
       e.preventDefault(); const b = f.querySelector('.go'); b.disabled = true;
       try {
         const fd = new FormData(f);
         const p = { category_id: fd.get('category_id'), amount: N(fd.get('amount')), expense_date: fd.get('expense_date'), account_id: fd.get('account_id'), description: fd.get('description'), reference: fd.get('reference'), notes: fd.get('notes') };
+        if (pcs.active) { const r = pcs.read(); if (r.error) throw new Error(r.error); if (r.lines.length) { p.partner_splits = r.lines; p.account_id = ''; } }
         const { error } = await sb.rpc('record_expense', { p }); if (error) throw error;
         toast('Expense recorded.'); await viewExpenses(el);
       } catch (err) { toast(errMsg(err), 'err'); b.disabled = false; }

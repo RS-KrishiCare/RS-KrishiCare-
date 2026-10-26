@@ -1,6 +1,7 @@
 // Operations: Purchases, Retailer Sales, Invoices, Payments & Receivables.
 // All accounting truth (stock, WAC, COGS, dues, balances) is computed by the database RPCs.
 import { makeShowInvoice } from './invoice.js';
+import { getPc, bindPc } from './pcsplit.js';
 
 export function initOps(h) {
   const { sb, $, esc, money, num, N, today, toast, errMsg, has, modal, opts, chk, confirmReason, fsec, carry, setSel } = h;
@@ -83,6 +84,8 @@ export function initOps(h) {
 
     const pf = $('#pf', el); if (!pf) return;
     const box = $('#lines', el);
+    const pcs = bindPc(await getPc(sb), pf, { select: pf.elements.account_id, dir: 'paid', title: 'Paid by (supplier payment + inbound costs)',
+      getTotal: () => N(pf.elements.paid_amount.value) + ['transport_cost', 'loading_cost', 'van_cost', 'other_cost'].reduce((a, k) => a + N(pf.elements[k].value), 0) });
     const upcOf = pid => N(prod.find(x => x.id === pid)?.units_per_carton);
     const purOpt = p => `<option value="${p.id}">${esc(p.name)} (${esc(p.unit)})${p.units_per_carton ? ' · ' + num(p.units_per_carton) + ' per carton' : ''}</option>`;
     const lineHtml = () => `<div class="ln"><label>Product<select class="pid ss ss-hl"><option value="">— Select product —</option>${prod.map(purOpt).join('')}</select></label>
@@ -120,7 +123,7 @@ export function initOps(h) {
     const startEditPurchase = async id => {
       try {
         const { data: d, error } = await sb.rpc('get_purchase_for_edit', { p_purchase: id }); if (error) throw error;
-        editing = id;
+        editing = id; pcs.edit(true);
         const wsel = pf.elements.warehouse_id; if (wsel) { wsel.disabled = true; wsel.required = false; wsel.closest('label').style.display = 'none'; }   // the warehouse of a saved purchase cannot change
         setSel(pf.elements.supplier_id, d.supplier_id);
         pf.elements.purchase_date.value = d.purchase_date; pf.elements.reference.value = d.reference || '';
@@ -152,6 +155,7 @@ export function initOps(h) {
         const items = [...box.querySelectorAll('.ln')].map(r => ({ product_id: r.querySelector('.pid').value, qty: N(r.querySelector('.q').value), unit_price: N(r.querySelector('.p').value), cartons: N(r.querySelector('.c').value) }));
         if (items.some(i => !i.product_id)) throw new Error('Select a product for every line (or remove the empty line).');
         const p = { supplier_id: fd.get('supplier_id'), purchase_date: fd.get('purchase_date'), reference: fd.get('reference'), transport_cost: N(fd.get('transport_cost')), loading_cost: N(fd.get('loading_cost')), van_cost: N(fd.get('van_cost')), other_cost: N(fd.get('other_cost')), paid_amount: N(fd.get('paid_amount')), account_id: fd.get('account_id') || '', notes: fd.get('notes'), items };
+        if (pcs.active && !editing) { const r = pcs.read(); if (r.error) throw new Error(r.error); if (r.lines.length) { p.partner_splits = r.lines; p.account_id = ''; } }
         if (!editing && wc.on) p.warehouse_id = fd.get('warehouse_id');
         const { error } = editing ? await sb.rpc('update_purchase', { p_purchase: editing, p }) : await sb.rpc('create_purchase', { p });
         if (error) throw error;
@@ -206,6 +210,7 @@ export function initOps(h) {
 
     const sf = $('#sf', el); if (!sf) return;
     const box = $('#lines', el);
+    const pcs = bindPc(await getPc(sb), sf, { select: sf.elements.account_id, dir: 'received', title: 'Received by', getTotal: () => N(sf.elements.paid_amount.value) });
     let rp = {}, own = {}, editing = null, converting = null;
     const priceFor = pid => rp[pid] ?? pmap[pid]?.sell_price ?? 0;
     const stockTxt = p => wc.on ? wc.list.map(w => `${esc(w.name)} ${num((whq[p.id] || {})[w.id] || 0)}`).join(' · ') : 'in stock ' + num(p.qty_on_hand);
@@ -244,6 +249,7 @@ export function initOps(h) {
     const startEditSale = async id => {
       try {
         const { data: d, error } = await sb.rpc('get_sale_for_edit', { p_sale: id }); if (error) throw error;
+        pcs.edit(true);
         editing = { id, retailer_id: d.retailer_id };
         const wsel = sf.elements.warehouse_id; if (wsel) { wsel.disabled = true; wsel.required = false; wsel.closest('label').style.display = 'none'; }   // the warehouse of a saved sale cannot change
         setSel(sf.elements.retailer_id, d.retailer_id); await loadPrices();
@@ -309,6 +315,7 @@ export function initOps(h) {
         const items = [...box.querySelectorAll('.ln')].map(r => ({ product_id: r.querySelector('.pid').value, qty: N(r.querySelector('.q').value), unit_price: N(r.querySelector('.p').value), line_discount: N(r.querySelector('.ld').value) }));
         if (items.some(i => !i.product_id)) throw new Error('Select a product for every line (or remove the empty line).');
         const p = { retailer_id: fd.get('retailer_id'), sale_date: fd.get('sale_date'), order_ref: fd.get('order_ref'), delivery_address: fd.get('delivery_address'), discount: N(fd.get('discount')), delivery_charge: N(fd.get('delivery_charge')), retailer_delivery_cost: N(fd.get('retailer_delivery_cost')), delivery_account_id: fd.get('delivery_account_id') || '', paid_amount: N(fd.get('paid_amount')), account_id: fd.get('account_id') || '', notes: fd.get('notes'), items };
+        if (pcs.active && !editing) { const r = pcs.read(); if (r.error) throw new Error(r.error); if (r.lines.length) { p.partner_splits = r.lines; p.account_id = ''; } }
         if (!editing && wc.on) p.warehouse_id = fd.get('warehouse_id');
         if (editing) {
           if (!p.retailer_id) p.retailer_id = editing.retailer_id;

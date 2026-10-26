@@ -20,6 +20,8 @@ export function initReports(h) {
     { id: 'collections', label: 'Payment collection report', f: ['retailer', 'account'] },
     { id: 'partner_capital', label: 'Partner capital report', f: ['partner', 'account'] },
     { id: 'partner_withdrawals', label: 'Partner withdrawal report', f: ['partner', 'account'] },
+    { id: 'partner_cash', label: 'Partner cash ledger (by partner and medium)', f: ['partner', 'txn_type', 'medium', 'account'], always: true, fin: true },
+    { id: 'partner_cash_summary', label: 'Partner cash summary', f: ['partner'], always: true, fin: true },
     { id: 'partner_equity', label: 'Partner equity report', f: ['partner'], nodate: true },
     { id: 'product_profit', label: 'Product profitability', f: ['product'] },
     { id: 'channel_profit', label: 'Channel profitability', f: [] },
@@ -54,7 +56,7 @@ export function initReports(h) {
     const keys = Object.keys(rows[0]);
     const showTotals = rep.id !== 'profit' && rows.length > 1;
     const totals = {};
-    if (showTotals) keys.forEach(k => { if (typeof rows[0][k] === 'number' && !QTY.has(k) && !NO_TOTAL.test(k)) totals[k] = rows.reduce((s, r) => s + Number(r[k] || 0), 0); });
+    if (showTotals) keys.forEach(k => { if (rows.some(r => typeof r[k] === 'number') && !QTY.has(k) && !NO_TOTAL.test(k)) totals[k] = rows.reduce((s, r) => s + Number(r[k] || 0), 0); });
     const head = `<tr>${keys.map(k => `<th>${pretty(k)}</th>`).join('')}</tr>`;
     const body = rows.map(r => `<tr>${keys.map(k => `<td>${fmt(k, r[k])}</td>`).join('')}</tr>`).join('');
     const foot = Object.keys(totals).length ? `<tr>${keys.map((k, i) => `<td><b>${k in totals ? money(totals[k]) : (i === 0 ? 'Total' : '')}</b></td>`).join('')}</tr>` : '';
@@ -97,13 +99,15 @@ export function initReports(h) {
       xcategory: () => `<label>Expense category<select name="category">${sOpts(L.xcats, 'All categories')}</select></label>`,
       pcategory: () => `<label>Product category<select name="category">${sOpts(L.pcats, 'All categories')}</select></label>`,
       partner: () => `<label>Partner<select name="partner">${sOpts(L.partners, 'All partners')}</select></label>`,
+      medium: () => `<label>Payment medium<select name="medium"><option value="">All</option><option value="cash">Cash</option><option value="bank">Bank</option><option value="mfs">Mobile banking</option></select></label>`,
+      txn_type: () => `<label>Transaction type<select name="txn_type"><option value="">All types</option><option value="purchase">Purchase payments</option><option value="sale">Sale receipts</option><option value="expense">Expenses</option><option value="transfer">Transfers</option><option value="adjustment">Opening / adjustments</option><option value="capital">Partner capital</option></select></label>`,
       status: () => `<label>Order status<select name="status"><option value="">All statuses</option>${STATUSES.map(s => `<option>${s}</option>`).join('')}</select></label>`
     };
     const drawFilters = () => {
       const rep = REPORTS.find(r => r.id === sel.value);
       const dates = rep.nodate ? '' : `<div class="row2"><label>From<input name="from" type="date"></label><label>To<input name="to" type="date"></label></div>
         <div class="btnrow" id="per"><button type="button" class="btn ghost sm" data-p="today">Today</button><button type="button" class="btn ghost sm" data-p="7">Last 7 days</button><button type="button" class="btn ghost sm" data-p="month">This month</button><button type="button" class="btn ghost sm" data-p="all">All time</button></div>`;
-      const extra = mode === 'custom' ? rep.f.map(k => FILT[k]()).join('') : '';
+      const extra = (mode === 'custom' || rep.always) ? rep.f.map(k => FILT[k]()).join('') : '';
       pfl.innerHTML = `<form id="rf">${dates}${extra}</form>`;
       const f = $('#rf', el);
       f.onsubmit = e => e.preventDefault();
