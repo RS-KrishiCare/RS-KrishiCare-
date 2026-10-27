@@ -26,7 +26,7 @@ export function bindPc(pc, form, { select, dir, getTotal, title }) {
   const box = document.createElement('div');
   box.className = 'pcs';
   const word = dir === 'received' ? 'Received by' : 'Paid by';
-  box.innerHTML = `<div class="pcs-h">${esc(title || word)} <small>— partner · medium · amount</small></div><div class="pcs-rows"></div>
+  box.innerHTML = `<div class="pcs-h">${esc(title || word)} <small>— medium · amount (partner only for cash)</small></div><div class="pcs-rows"></div>
     <button type="button" class="btn ghost sm pcs-add">+ Add another partner</button><div class="pcs-sum"></div>`;
   old.insertAdjacentElement('afterend', box);
   old.style.display = 'none'; select.required = false;
@@ -34,16 +34,17 @@ export function bindPc(pc, form, { select, dir, getTotal, title }) {
   let editing = false;
 
   const rowHtml = () => `<div class="pcs-row">
-    <select class="pcs-p" aria-label="Partner">${pc.partners.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select>
     <select class="pcs-m" aria-label="Medium"><option value="cash">Cash (partner’s own cash)</option>${pc.accounts.map(a => `<option value="${esc(a.id)}">${esc(a.name)}</option>`).join('')}</select>
+    <select class="pcs-p" aria-label="Which partner’s cash">${pc.partners.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join('')}</select>
     <input class="pcs-a" type="number" step="any" min="0" inputmode="decimal" placeholder="Amount ৳" aria-label="Amount">
     <button type="button" class="btn ghost sm pcs-x" aria-label="Remove">✕</button></div>`;
   const lines = () => [...rows.querySelectorAll('.pcs-row')].map(r => ({
-    partner_id: r.querySelector('.pcs-p').value, medium: r.querySelector('.pcs-m').value, amount: r2(r.querySelector('.pcs-a').value), el: r }));
+    partner_id: r.querySelector('.pcs-m').value === 'cash' ? r.querySelector('.pcs-p').value : '', medium: r.querySelector('.pcs-m').value, amount: r2(r.querySelector('.pcs-a').value), el: r }));
   const total = () => r2(getTotal());
 
   const refresh = () => {
     if (editing) return;
+    rows.querySelectorAll('.pcs-row').forEach(r => { r.querySelector('.pcs-p').style.display = r.querySelector('.pcs-m').value === 'cash' ? '' : 'none'; });
     const t = total(), ls = lines();
     if (ls.length === 1 && !ls[0].el.dataset.touched) ls[0].el.querySelector('.pcs-a').value = t > 0 ? t : '';
     const s = r2(lines().reduce((a, l) => a + l.amount, 0)), diff = r2(t - s);
@@ -60,7 +61,7 @@ export function bindPc(pc, form, { select, dir, getTotal, title }) {
       const s = r2(lines().slice(0, -1).reduce((a, l) => a + l.amount, 0));
       r.querySelector('.pcs-a').value = Math.max(0, r2(total() - s)) || '';
       r.dataset.touched = '1';
-      const used = new Set(lines().slice(0, -1).map(l => l.partner_id)), next = pc.partners.find(p => !used.has(p.id));
+      const used = new Set(lines().slice(0, -1).filter(l => l.partner_id).map(l => l.partner_id)), next = pc.partners.find(p => !used.has(p.id));
       if (next) r.querySelector('.pcs-p').value = next.id;
     }
     refresh();
@@ -81,7 +82,7 @@ export function bindPc(pc, form, { select, dir, getTotal, title }) {
       const t = total();
       if (t <= 0) return { lines: [], error: null };
       const ls = lines().filter(l => l.amount > 0);
-      if (!ls.length) return { lines: [], error: 'Enter which partner paid or received the money.' };
+      if (!ls.length) return { lines: [], error: 'Enter how the money was paid or received (cash with the partner, or an account).' };
       const s = r2(ls.reduce((a, l) => a + l.amount, 0));
       if (Math.abs(s - t) > 0.005) return { lines: [], error: `Partner amounts total ${money(s)} but the payment is ${money(t)}. They must match exactly.` };
       return { lines: ls.map(({ partner_id, medium, amount }) => ({ partner_id, medium, amount })), error: null };
