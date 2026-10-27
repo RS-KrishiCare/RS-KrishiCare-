@@ -78,12 +78,12 @@ export function initPc(h) {
     const refresh = () => viewPartnerCash(el);
     const partnerOpts = pc.map(x => `<option value="${x.partner_id}">${esc(x.name)}</option>`).join('');
 
-    const openCash = pid => modal('Set opening cash', `<label>Partner<select name="partner">${partnerOpts}</select></label>
+    const openCash = pid => { modal('Set opening cash', `<label>Partner<select name="partner">${partnerOpts}</select></label>
       <label>Cash in hand (৳)<input name="amount" type="number" step="any" min="0" inputmode="decimal" required></label>
       <label>As of date<input name="date" type="date" value="${today()}" required></label><label>Note<input name="reason" placeholder="e.g. counted on the day we started"></label>
       <small>Opening cash can be set once per partner. Later corrections are made with “Adjust cash”.</small>`,
       async fd => { const { error } = await sb.rpc('pc_set_opening', { p_partner: fd.get('partner'), p_amount: N(fd.get('amount')), p_date: fd.get('date'), p_reason: fd.get('reason') || null }); if (error) throw error; toast('Opening cash saved.'); refresh(); }, 'Save');
-    if (pid) setTimeout(() => { const s = document.querySelector('.sheet select[name=partner]'); if (s) s.value = pid; }, 0);
+      if (pid) setTimeout(() => { const s = document.querySelector('.sheet select[name=partner]'); if (s) s.value = pid; }, 0); };
     el.querySelectorAll('[data-open]').forEach(b => b.onclick = () => openCash(b.dataset.open));
     const ob = $('#pc-open', el); if (ob) ob.onclick = () => openCash();
 
