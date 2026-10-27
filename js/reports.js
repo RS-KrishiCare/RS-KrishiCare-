@@ -9,6 +9,7 @@ export function initReports(h) {
     { id: 'profit', label: 'Profit report (gross and net)', f: [] },
     { id: 'expenses', label: 'Expense report', f: ['xcategory', 'account'] },
     { id: 'stock', label: 'Stock and stock valuation', f: ['product', 'pcategory'], nodate: true, store: true },
+    { id: 'in_stock', label: 'In Stock Report (products available and quantity)', f: [], nodate: true, store: true },
     { id: 'low_stock', label: 'Low-stock report', f: [], nodate: true, store: true },
     { id: 'losses', label: 'Damage / loss report', f: ['product'], store: true },
     { id: 'retailer_due', label: 'Retailer due report', f: ['retailer'] },
@@ -126,10 +127,15 @@ export function initReports(h) {
       const p = {}; new FormData(f).forEach((v, k) => { if (v) p[k] = v; });
       btn.disabled = true; out.innerHTML = LOADING;
       try {
-        const { data, error } = rep.id === 'salesman' ? await sb.rpc('report_salesman', { p }) : await sb.rpc('report_data', { p_report: rep.id, p });
+        if (rep.id === 'in_stock') {
+          const r = await sb.from('v_stock').select('name,unit,qty_on_hand').gt('qty_on_hand', 0).order('name').limit(5000);
+          if (r.error) throw r.error;
+          var inStock = (r.data || []).map(x => ({ product: x.name, unit: x.unit, quantity: x.qty_on_hand }));
+        }
+        const { data, error } = rep.id === 'in_stock' ? { data: inStock, error: null } : rep.id === 'salesman' ? await sb.rpc('report_salesman', { p }) : await sb.rpc('report_data', { p_report: rep.id, p });
         if (error) throw error;
         const t = renderTable(rep, data || []);
-        const sub = [p.from ? 'From ' + p.from : '', p.to ? 'To ' + p.to : ''].filter(Boolean).join(' ') || 'All dates';
+        const sub = [p.from ? 'From ' + p.from : '', p.to ? 'To ' + p.to : ''].filter(Boolean).join(' ') || (rep.nodate ? 'Current stock' : 'All dates');
         last = { rep, t, sub };
         out.innerHTML = `<div class="bar"><h3 class="sec">${esc(rep.label)}</h3><span class="mut">${esc(sub)}</span></div>
           ${t.empty ? '' : '<div class="btnrow"><button class="btn ghost sm" id="prt">🖨 Print / Save as PDF</button><button class="btn ghost sm" id="csv">⬇ Download CSV</button></div>'}${t.html}`;
