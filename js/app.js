@@ -1,14 +1,14 @@
 import { SUPABASE_URL, SUPABASE_KEY } from './config.js';
-import { initOps } from './ops.js';
-import { initFin } from './fin.js';
-import { initPc } from './pc.js';
-import { initReports } from './reports.js';
-import { initDash } from './dash.js';
-import { initWh } from './wh.js';
-import { initEst } from './est.js';
-import { initWeb } from './web.js';
-import { ic } from './icons.js';
-import { initUI, setSelect, refreshCatData } from './ui.js';
+import { initOps } from './ops.js?v=20261028';
+import { initFin } from './fin.js?v=20261028';
+import { initPc } from './pc.js?v=20261028';
+import { initReports } from './reports.js?v=20261028';
+import { initDash } from './dash.js?v=20261028';
+import { initWh } from './wh.js?v=20261028';
+import { initEst } from './est.js?v=20261028';
+import { initWeb } from './web.js?v=20261028';
+import { ic } from './icons.js?v=20261028';
+import { initUI, setSelect, refreshCatData } from './ui.js?v=20261028';
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }

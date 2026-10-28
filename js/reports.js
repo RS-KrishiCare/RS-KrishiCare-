@@ -82,6 +82,7 @@ export function initReports(h) {
     const avail = REPORTS.filter(r => has('owner', 'partner', 'accountant') || r.store);
     const iso = d => d.toLocaleDateString('en-CA');
     el.innerHTML = `<div class="bar"><h2>${mode === 'custom' ? 'Custom Report' : 'Reports'}</h2></div>
+    ${mode === 'custom' ? `<div class="box"><h3 class="sec" style="margin-top:0">In Stock Report</h3><p class="mut" style="margin:4px 0 10px">Which products are in stock right now, and how many of each.</p><button class="btn" id="qstock" type="button">Show In Stock Report</button></div>` : ''}
     <div class="box">
       <label>Report<select id="rsel">${avail.map(r => `<option value="${r.id}">${r.label}</option>`).join('')}</select></label>
       <div id="pfl"></div>
@@ -122,6 +123,8 @@ export function initReports(h) {
       };
     };
     sel.onchange = drawFilters; drawFilters();
+    const qs = $('#qstock', el);
+    if (qs) qs.onclick = () => { sel.value = 'in_stock'; drawFilters(); $('#run', el).click(); };
     $('#run', el).onclick = async () => {
       const rep = REPORTS.find(r => r.id === sel.value), f = $('#rf', el), btn = $('#run', el);
       const p = {}; new FormData(f).forEach((v, k) => { if (v) p[k] = v; });
